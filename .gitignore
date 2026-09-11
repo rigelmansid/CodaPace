@@ -1,0 +1,10 @@
+# Build products
+.build/
+build/
+
+# macOS
+.DS_Store
+
+# Xcode (not used by this project, but harmless to guard against)
+xcuserdata/
+*.xcuserstate
