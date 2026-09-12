@@ -2,6 +2,9 @@
 .build/
 build/
 
+# Release archives (attached to GitHub Releases, not committed)
+*.zip
+
 # macOS
 .DS_Store
 
