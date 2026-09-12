@@ -158,10 +158,19 @@ from a browser or another machine.
 
 ### If you got a prebuilt copy instead
 
-Builds are **ad-hoc signed and not notarized**. An app downloaded rather than compiled locally
-carries a quarantine flag, and Gatekeeper will refuse the first double-click. Right-click it, choose
-**Open**, and confirm — a one-time step. Removing that friction properly requires a Developer ID
-certificate and notarization, which this project doesn't have.
+Builds are **ad-hoc signed and not notarized** — `Signature=adhoc`, no Team ID. A copy that arrived
+by download, AirDrop, or from another machine carries a quarantine flag, and Gatekeeper will refuse
+to open it.
+
+To open it anyway:
+
+1. **Control-click the app and choose Open.** On some macOS versions this is enough.
+2. If macOS still refuses, open **System Settings → Privacy & Security**, scroll to the security
+   section, and click **Open Anyway** beside the message about the blocked app. Then launch it again.
+
+Either way it's a one-time step per copy. Removing the friction properly requires a Developer ID
+certificate and notarization, which this project doesn't have — so if that warning is a dealbreaker,
+build from source instead.
 
 ### Setup
 
