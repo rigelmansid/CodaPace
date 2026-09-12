@@ -1,5 +1,7 @@
 # CodaPace
 
+**English** · [简体中文](README.zh-CN.md)
+
 **Know whether you'll make it to the reset.**
 
 A macOS menu bar app for watching Claude API quota — not just how much you've spent,
