@@ -45,7 +45,7 @@ struct SettingsView: View {
     private enum TestResult: Equatable {
         case idle
         case testing
-        case success(name: String, active: Bool)
+        case success(ConnectionReport)
         case failure(String)
     }
 
@@ -54,8 +54,18 @@ struct SettingsView: View {
     @State private var input: String = Config.consoleURL?.absoluteString ?? ""
     @State private var result: TestResult = .idle
 
-    /// 网址能不能解析出 base + apiId
-    private var parsed: (base: String, apiId: String)? { Config.parse(input) }
+    /// 在飞的那次测试对应的是**哪一段输入**。
+    /// 没有它就会出现:测试在飞时用户改了网址,旧结果回来照样写进界面,
+    /// 于是显示「连接成功」,而那说的是上一个网址。
+    @State private var probe = InFlightGate<String>()
+
+    /// 哪个适配器认这个网址,以及它解析出的连接身份。
+    /// 解析归适配器 —— 不同供应商的链接格式、路径前缀都不一样。
+    private var resolved: (adapter: UsageProviderAdapter, account: AccountIdentity)? {
+        ProviderRegistry.parse(input)
+    }
+
+    private var parsed: AccountIdentity? { resolved?.account }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
@@ -70,7 +80,7 @@ struct SettingsView: View {
                     .foregroundStyle(.secondary)
             }
 
-            TextField(l10n.t(.setupPlaceholder), text: $input)
+            TextField(ProviderRegistry.fallback.inputExample, text: $input)
                 .textFieldStyle(.roundedBorder)
                 .font(.system(size: 11, design: .monospaced))
                 .onChange(of: input) { _ in result = .idle }
@@ -87,7 +97,7 @@ struct SettingsView: View {
                 Spacer()
 
                 Button(l10n.t(.setupTest)) { test() }
-                    .disabled(parsed == nil || result == .testing)
+                    .disabled(parsed == nil || probe.isBusy)
 
                 Button(l10n.t(.setupSave)) { save() }
                     .keyboardShortcut(.defaultAction)
@@ -106,22 +116,41 @@ struct SettingsView: View {
         case .idle:
             if input.isEmpty {
                 hint(l10n.t(.setupWaiting), color: .secondary)
-            } else if parsed == nil {
-                hint(l10n.t(.setupNoApiId), color: .red)
+            } else if let resolved {
+                // 只说「认出是哪家」,不说「能用」—— 那要等真请求跑通
+                hint(l10n.f(.setupRecognizedFormat, resolved.adapter.displayName),
+                     color: .secondary)
             } else {
-                hint(l10n.t(.setupParsable), color: .secondary)
+                // 认不出来就如实说认不出来,不猜一个出来
+                hint(l10n.t(.setupUnsupported), color: .red)
             }
 
         case .testing:
             hint(l10n.t(.setupTesting), color: .secondary)
 
-        case .success(let name, let active):
-            hint(l10n.f(.setupSuccessFormat, name,
-                        l10n.t(active ? .statusActive : .statusInactive)),
-                 color: .green)
+        case .success(let report):
+            VStack(alignment: .leading, spacing: 3) {
+                hint(l10n.f(.setupSuccessFormat, report.accountName,
+                            l10n.t(report.isActive ? .statusActive : .statusInactive)),
+                     color: .green)
+                // 保存之前就把已知局限讲清楚,而不是等用户以后自己发现
+                ForEach(report.findings, id: \.self) { finding in
+                    hint("· " + l10n.t(label(for: finding)), color: .secondary)
+                }
+            }
 
         case .failure(let message):
             hint(l10n.f(.setupFailureFormat, message), color: .red)
+        }
+    }
+
+    private func label(for finding: ConnectionReport.Finding) -> LangKey {
+        switch finding {
+        case .noLimitedQuota:      return .findNoLimitedQuota
+        case .incompleteUsage:     return .findIncompleteUsage
+        case .dailyResetInferred:  return .findDailyResetInferred
+        case .noResetWindow:       return .findNoResetWindow
+        case .historyIsLocalOnly:  return .findHistoryIsLocalOnly
         }
     }
 
@@ -135,31 +164,41 @@ struct SettingsView: View {
 
     // MARK: 动作
 
-    /// 用输入的凭据真拉一次接口,**不落盘** —— 保存前先确认它是通的
+    /// 用输入的凭据真拉一次接口,**不落盘** —— 保存前先确认它是通的。
+    ///
+    /// 走的是和正式刷新完全相同的入口:域名或路径像不像都不算数,
+    /// 只有真请求跑通才算确认这个适配器认得对方的协议。
     private func test() {
-        guard let parsed else { return }
+        guard let resolved else { return }
+
+        // 整个流程只认这一段输入。和刷新那边同一个道理:
+        // 中途用户可能已经把网址改了,那这次的结果就不属于屏幕上这段文字了。
+        let probed = input
+        guard probe.begin(probed) else { return }
         result = .testing
 
         Task {
+            defer { probe.finish(probed) }
             do {
-                let stats = try await API.userStats(base: parsed.base, apiId: parsed.apiId)
-                result = .success(name: stats.name.isEmpty ? "API Key" : stats.name,
-                                  active: stats.isActive)
+                // 只验连通性,这时还没学到任何重置规则,所以给一个默认 schedule
+                let report = try await resolved.adapter.verify(resolved.account,
+                                                               language: l10n.language)
+                // 提交前校验:输入变了就整份丢掉 ——
+                // 否则界面会显示「连接成功」,而那说的是上一个网址
+                guard input == probed else { return }
+                result = .success(report)
             } catch {
+                guard input == probed else { return }
                 result = .failure(error.localizedDescription)
             }
         }
     }
 
+    /// 切换账户的全部收尾都在 applyAccount 里 —— 落盘、清旧状态、重启定时器、立刻刷一次。
+    /// 这里不再逐个字段写 Config:分开写会留下半个账户的中间态。
     private func save() {
         guard let parsed else { return }
-        Config.baseURL = parsed.base
-        Config.apiId = parsed.apiId
-
-        let service = UsageService.shared
-        service.restartRefreshTimer()
-        Task { await service.refresh() }
-
+        UsageService.shared.applyAccount(parsed)
         SettingsWindow.shared.close()
     }
 }

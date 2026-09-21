@@ -199,6 +199,12 @@ struct PopoverView: View {
         // 之后每次刷新拿到新快照也跟着更新
         .onAppear { reloadHistory() }
         .onChange(of: service.snapshot?.fetchedAt) { _ in reloadHistory() }
+        // 换「菜单栏显示哪条额度」画的就是另一条额度了。
+        // 少了这条,标题会立刻变而曲线要等下一次网络刷新 —— 那段时间里
+        // 标题说的是一条额度,曲线画的是另一条。
+        .onChange(of: service.menuBarSource) { _ in reloadHistory() }
+        // 换账户 = 换一整个历史库,且不一定伴随快照变化(两边都离线时都是 nil)
+        .onChange(of: service.accountGeneration) { _ in reloadHistory() }
     }
 
     // MARK: 头部
@@ -318,12 +324,16 @@ struct PopoverView: View {
         VStack(spacing: 0) {
             miniChart(title: l10n.t(.chartQuotaTrend),
                       detail: "\(service.menuBarGauge?.label(l10n.language) ?? l10n.t(.quotaDaily)) · \(l10n.t(.chartLast24h))") {
-                if history.quotaPoints.isEmpty {
-                    ChartPlaceholder(message: l10n.t(.chartNoSamples))
-                } else {
+                // 同历史窗口:空曲线有两种原因,别把「有采样但算不出百分比」
+                // 说成「还没有采样」
+                if !history.quotaPoints.isEmpty {
                     QuotaChart(points: history.quotaPoints,
                                connectors: history.quotaConnectors,
                                gaps: history.gaps)
+                } else if history.quotaSamplesInRange > 0 {
+                    ChartPlaceholder(message: l10n.t(.chartNoPercentage))
+                } else {
+                    ChartPlaceholder(message: l10n.t(.chartNoSamples))
                 }
             }
 
@@ -365,8 +375,7 @@ struct PopoverView: View {
     private func reloadHistory() {
         let gauge = service.menuBarGauge
         history.reload(kind: gauge?.kind ?? .daily,
-                       limit: gauge?.limit ?? 0,
-                       window: gauge?.window,
+                       rule: gauge?.rule,
                        quotaDays: 1,
                        tokenDays: 30)
     }

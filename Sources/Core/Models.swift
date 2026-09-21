@@ -1,19 +1,97 @@
 //
 //  Models.swift — 中转站接口的数据模型
 //
-//  解码策略:宽松。字段缺失或为 null 一律给默认值,
-//  换一个 claude-relay-service 部署、或对方加减字段,都不会让整个响应解码失败。
+//  解码策略:**容忍缺失,拒绝无效**。这两件事从前混在一起,都退回 0:
+//
+//  · 缺失(没这个键)或 null —— 容忍。换一个 claude-relay-service 部署、
+//    对方加减字段,都不该让整份响应解码失败。
+//  · 存在但类型不对(数字位置上是字符串、对象位置上是数组…)—— 拒绝整份响应。
+//    这不是「没有」,是数据坏了;给它填 0 会被下游当成真实的「花了 0 块钱」。
+//
+//  容忍缺失本身也有代价:0 和「不知道」在历史里是两件完全不同的事。
+//  所以要进历史的那几个数值会另外记一笔「这次是不是真的观测到了」——
+//  见 UserStats.hasCompleteUsage。
 //
 
 import Foundation
 
-// MARK: - 宽松解码
+// MARK: - 无效字段
+
+/// 响应里某个字段**存在但类型不对**。
+///
+/// 单独立一个错误类型,是为了能在错误信息里点出是哪个字段坏了 ——
+/// 笼统的「响应格式无法解析」对着一个自建中转站根本没法排查。
+public struct InvalidFieldError: Error, Equatable {
+    public let field: String
+    public init(field: String) { self.field = field }
+}
+
+// MARK: - 解码辅助
 
 private extension KeyedDecodingContainer {
-    func dbl(_ k: Key) -> Double { (try? decode(Double.self, forKey: k)) ?? 0 }
-    func i(_ k: Key) -> Int { (try? decode(Int.self, forKey: k)) ?? 0 }
-    func str(_ k: Key) -> String { (try? decode(String.self, forKey: k)) ?? "" }
-    func bool(_ k: Key) -> Bool { (try? decode(Bool.self, forKey: k)) ?? false }
+
+    /// 键存在且不是 null
+    ///
+    /// null 归到「没给」而不是「坏了」:用 null 表示可选字段为空是很常见的写法,
+    /// 为此把整份响应判死太激进。但它同样不是观测值,照样会让用量被标成不完整。
+    func present(_ k: Key) throws -> Bool {
+        guard contains(k) else { return false }
+        return try !decodeNil(forKey: k)
+    }
+
+    func number(_ k: Key) throws -> Double? {
+        guard try present(k) else { return nil }
+        guard let v = try? decode(Double.self, forKey: k) else {
+            throw InvalidFieldError(field: k.stringValue)
+        }
+        return v
+    }
+
+    func integer(_ k: Key) throws -> Int? {
+        guard try present(k) else { return nil }
+        guard let v = try? decode(Int.self, forKey: k) else {
+            throw InvalidFieldError(field: k.stringValue)
+        }
+        return v
+    }
+
+    func text(_ k: Key) throws -> String? {
+        guard try present(k) else { return nil }
+        guard let v = try? decode(String.self, forKey: k) else {
+            throw InvalidFieldError(field: k.stringValue)
+        }
+        return v
+    }
+
+    func flag(_ k: Key) throws -> Bool? {
+        guard try present(k) else { return nil }
+        guard let v = try? decode(Bool.self, forKey: k) else {
+            throw InvalidFieldError(field: k.stringValue)
+        }
+        return v
+    }
+
+    /// 嵌套对象。缺失 → nil;存在但解不出来 → 拒绝。
+    /// 内层自己抛的 InvalidFieldError 原样上抛,好保留真正出问题的那个字段名。
+    func object<T: Decodable>(_ type: T.Type, forKey k: Key) throws -> T? {
+        guard try present(k) else { return nil }
+        do {
+            return try decode(type, forKey: k)
+        } catch let error as InvalidFieldError {
+            throw error
+        } catch {
+            throw InvalidFieldError(field: k.stringValue)
+        }
+    }
+
+    func nested<NestedKey>(_ keys: NestedKey.Type,
+                           forKey k: Key) throws -> KeyedDecodingContainer<NestedKey>? {
+        guard try present(k) else { return nil }
+        guard let container = try? nestedContainer(keyedBy: keys, forKey: k) else {
+            throw InvalidFieldError(field: k.stringValue)
+        }
+        return container
+    }
 }
 
 // MARK: - limits
@@ -47,6 +125,10 @@ public struct Limits: Decodable, Equatable {
 
     public var concurrencyLimit = 0
 
+    /// 四个「当前用量」是不是都真的在响应里(既非缺失也非 null)。
+    /// 它们要进历史,所以「0」和「不知道」必须能分开。
+    public var hasAllCurrentCosts = true
+
     public init() {}
 
     enum CodingKeys: String, CodingKey {
@@ -59,29 +141,39 @@ public struct Limits: Decodable, Equatable {
 
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
-        totalCostLimit = c.dbl(.totalCostLimit)
-        dailyCostLimit = c.dbl(.dailyCostLimit)
-        weeklyOpusCostLimit = c.dbl(.weeklyOpusCostLimit)
-        rateLimitCost = c.dbl(.rateLimitCost)
 
-        currentTotalCost = c.dbl(.currentTotalCost)
-        currentDailyCost = c.dbl(.currentDailyCost)
-        weeklyOpusCost = c.dbl(.weeklyOpusCost)
-        currentWindowCost = c.dbl(.currentWindowCost)
+        // 上限缺失时退回 0 是有意义的:0 在这里本来就表示「不限」
+        totalCostLimit = try c.number(.totalCostLimit) ?? 0
+        dailyCostLimit = try c.number(.dailyCostLimit) ?? 0
+        weeklyOpusCostLimit = try c.number(.weeklyOpusCostLimit) ?? 0
+        rateLimitCost = try c.number(.rateLimitCost) ?? 0
 
-        rateLimitWindow = c.i(.rateLimitWindow)
-        rateLimitRequests = c.i(.rateLimitRequests)
-        currentWindowRequests = c.i(.currentWindowRequests)
-        currentWindowTokens = c.dbl(.currentWindowTokens)
-        windowStartTime = c.dbl(.windowStartTime)
-        windowEndTime = c.dbl(.windowEndTime)
-        windowRemainingSeconds = c.i(.windowRemainingSeconds)
+        // 这四个不一样 —— 它们会被原样写进历史采样,
+        // 所以要留住「到底有没有观测到」这个事实,而不只是退回 0
+        let total = try c.number(.currentTotalCost)
+        let daily = try c.number(.currentDailyCost)
+        let opus = try c.number(.weeklyOpusCost)
+        let window = try c.number(.currentWindowCost)
+
+        currentTotalCost = total ?? 0
+        currentDailyCost = daily ?? 0
+        weeklyOpusCost = opus ?? 0
+        currentWindowCost = window ?? 0
+        hasAllCurrentCosts = total != nil && daily != nil && opus != nil && window != nil
+
+        rateLimitWindow = try c.integer(.rateLimitWindow) ?? 0
+        rateLimitRequests = try c.integer(.rateLimitRequests) ?? 0
+        currentWindowRequests = try c.integer(.currentWindowRequests) ?? 0
+        currentWindowTokens = try c.number(.currentWindowTokens) ?? 0
+        windowStartTime = try c.number(.windowStartTime) ?? 0
+        windowEndTime = try c.number(.windowEndTime) ?? 0
+        windowRemainingSeconds = try c.integer(.windowRemainingSeconds) ?? 0
 
         // 周重置日/时可以合法地为 0,所以缺失时要能区分出「没有」→ 用 -1
-        weeklyResetDay = (try? c.decode(Int.self, forKey: .weeklyResetDay)) ?? -1
-        weeklyResetHour = (try? c.decode(Int.self, forKey: .weeklyResetHour)) ?? -1
+        weeklyResetDay = try c.integer(.weeklyResetDay) ?? -1
+        weeklyResetHour = try c.integer(.weeklyResetHour) ?? -1
 
-        concurrencyLimit = c.i(.concurrencyLimit)
+        concurrencyLimit = try c.integer(.concurrencyLimit) ?? 0
     }
 }
 
@@ -93,15 +185,24 @@ public struct UsageBlock: Decodable, Equatable {
     public var requests = 0
     public var cost = 0.0
 
+    /// 两个**累计值**是不是都真的在响应里。
+    /// 它们靠相邻两次做差得出当天用量,一次假的 0 会在下一次恢复正常时
+    /// 变成一整笔凭空冒出来的用量。`cost` 不参与历史,所以不算在内。
+    public var hasAllTotals = true
+
     public init() {}
 
     enum CodingKeys: String, CodingKey { case allTokens, requests, cost }
 
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
-        allTokens = c.dbl(.allTokens)
-        requests = c.i(.requests)
-        cost = c.dbl(.cost)
+        let tokens = try c.number(.allTokens)
+        let count = try c.integer(.requests)
+
+        allTokens = tokens ?? 0
+        requests = count ?? 0
+        cost = try c.number(.cost) ?? 0
+        hasAllTotals = tokens != nil && count != nil
     }
 }
 
@@ -113,6 +214,19 @@ public struct UserStats: Decodable, Equatable {
     public var limits = Limits()
     public var total = UsageBlock()
 
+    /// 要进历史的六个数值(四个当前用量 + 两个累计值)这次是不是**都真的观测到了**。
+    ///
+    /// 缺失和 null 会被容忍成 0 —— 那是为了兼容不同部署,显示成 0 顶多是难看。
+    /// 但写进历史就不一样了,0 和「不知道」在那里是两件完全不同的事:
+    ///
+    /// · 曲线上会多出一次并不存在的归零;
+    /// · 下一次正常值恢复时,那段差值会被当成一大笔凭空冒出来的新增用量;
+    /// · 日额度的假下降还会让重置学习把它认成一次真的重置 —— 而那个结论只学一次,
+    ///   学错了就一直错下去。
+    ///
+    /// 所以这种快照可以显示,但不能入库。
+    public var hasCompleteUsage = true
+
     public init() {}
 
     enum CodingKeys: String, CodingKey { case name, isActive, limits, usage }
@@ -120,12 +234,19 @@ public struct UserStats: Decodable, Equatable {
 
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
-        name = c.str(.name)
-        isActive = c.bool(.isActive)
-        limits = (try? c.decode(Limits.self, forKey: .limits)) ?? Limits()
-        if let usage = try? c.nestedContainer(keyedBy: UsageKeys.self, forKey: .usage) {
-            total = (try? usage.decode(UsageBlock.self, forKey: .total)) ?? UsageBlock()
-        }
+        name = try c.text(.name) ?? ""
+        isActive = try c.flag(.isActive) ?? false
+
+        let decodedLimits = try c.object(Limits.self, forKey: .limits)
+        limits = decodedLimits ?? Limits()
+
+        let decodedTotal = try c.nested(UsageKeys.self, forKey: .usage)
+            .flatMap { try $0.object(UsageBlock.self, forKey: .total) }
+        total = decodedTotal ?? UsageBlock()
+
+        // 整块缺失(limits / usage 没给)和块内某个字段缺失,后果一样 —— 都是没观测到
+        hasCompleteUsage = (decodedLimits?.hasAllCurrentCosts ?? false)
+            && (decodedTotal?.hasAllTotals ?? false)
     }
 }
 
@@ -153,6 +274,10 @@ public enum ResponseDecoder {
         let env: Envelope<T>
         do {
             env = try JSONDecoder().decode(Envelope<T>.self, from: data)
+        } catch let invalid as InvalidFieldError {
+            // 「某个字段坏了」和「整份东西根本不是这个接口的响应」是两回事。
+            // 前者要把字段名报出来 —— 否则对着一个自建中转站根本无从排查。
+            throw APIError(L10n.format(.errInvalidFieldFormat, language, invalid.field))
         } catch {
             throw APIError(L10n.text(.errUnparsable, language))
         }

@@ -45,7 +45,8 @@ struct HistoryView: View {
     @State private var kind: QuotaKind = .daily
     @State private var days: Int = 7
 
-    /// 当前所选额度的上限。取不到(或不限)就画不出百分比曲线。
+    /// 当前所选额度的上限。**只用于标题那行的「上限 $x」**,是此刻的配置,
+    /// 不参与绘图 —— 曲线上每个点用的是它自己那条采样当时的上限。
     private var limit: Double {
         service.snapshot?.gauge(kind)?.limit ?? 0
     }
@@ -68,12 +69,17 @@ struct HistoryView: View {
         .onAppear { reload() }
         .onChange(of: kind) { _ in reload() }
         .onChange(of: days) { _ in reload() }
+        // 窗口开着的时候新采样要自己出现,不该等用户关掉重开。
+        // fetchedAt 是每次成功刷新都会变的那个值。
+        .onChange(of: service.snapshot?.fetchedAt) { _ in reload() }
+        // 换账户 = 换一整个历史库。这一条不能省略成上面那条:
+        // 两个账户都离线时快照前后都是 nil,只看快照什么也观察不到。
+        .onChange(of: service.accountGeneration) { _ in reload() }
     }
 
     private func reload() {
         model.reload(kind: kind,
-                     limit: limit,
-                     window: service.snapshot?.gauge(kind)?.window,
+                     rule: service.snapshot?.gauge(kind)?.rule,
                      quotaDays: days,
                      tokenDays: days)
     }
@@ -117,17 +123,24 @@ struct HistoryView: View {
                             ? l10n.f(.historyLimitFormat, Fmt.money2(limit))
                             : l10n.t(.historyNoLimit)))
 
-            if limit <= 0 {
-                ChartPlaceholder(message: l10n.t(.historyNoLimitMessage))
-                    .frame(height: 200)
-            } else if model.quotaPoints.isEmpty {
-                ChartPlaceholder(message: l10n.t(.historyNoSamplesMessage))
-                    .frame(height: 200)
-            } else {
+            // 画不画曲线,由**点本身**决定,不看当前上限。
+            //
+            // 原先这里是 `if limit <= 0`,拿此刻的配置决定历史画不画 ——
+            // 用户今天把额度改成不限额,昨天那段本来完全画得出的曲线会整段消失,
+            // 被一句「没设上限」盖掉。历史点各用各当时的上限,和现在设成多少无关。
+            if !model.quotaPoints.isEmpty {
                 QuotaChart(points: model.quotaPoints,
                            connectors: model.quotaConnectors,
                            gaps: model.gaps,
                            showsAxes: true)
+                    .frame(height: 200)
+            } else if model.quotaSamplesInRange > 0 {
+                // 有采样,但没有一条算得出百分比 —— 和「根本没采样」是两回事,
+                // 说错了用户会去找一段并不存在的空档
+                ChartPlaceholder(message: l10n.t(.historyNoLimitMessage))
+                    .frame(height: 200)
+            } else {
+                ChartPlaceholder(message: l10n.t(.historyNoSamplesMessage))
                     .frame(height: 200)
             }
         }

@@ -87,7 +87,7 @@ public enum LangKey: String, CaseIterable {
 
     // 图表
     case chartQuotaTrend, chartTokenUsage, chartLast24h, chartLast30d
-    case chartNoSamples, chartNoTokenDays
+    case chartNoSamples, chartNoPercentage, chartNoTokenDays
 
     // 历史窗口
     case historyTitle, historyQuota, historyRange, historySampleCountFormat
@@ -98,10 +98,15 @@ public enum LangKey: String, CaseIterable {
     case historyTokensTotalFormat, historyTokensByDay
 
     // 配置窗口
-    case setupWindowTitle, setupTitle, setupDesc1, setupDesc2, setupPlaceholder
+    case setupWindowTitle, setupTitle, setupDesc1, setupDesc2
     case setupTest, setupSave, setupSupportedLink
-    case setupWaiting, setupNoApiId, setupParsable, setupTesting
+    case setupWaiting, setupTesting
     case setupSuccessFormat, setupFailureFormat
+    case setupUnsupported, setupRecognizedFormat
+
+    // 连接报告里的提示
+    case findNoLimitedQuota, findIncompleteUsage, findDailyResetInferred
+    case findNoResetWindow, findHistoryIsLocalOnly
 
     // 通知
     case notifyLowTitleFormat, notifyLowBodyFormat
@@ -109,6 +114,7 @@ public enum LangKey: String, CaseIterable {
 
     // 错误
     case errInvalidURLFormat, errHTTPFormat, errNoData, errUnparsable, errApiFailed
+    case errInvalidFieldFormat
     case errHistoryStore
 }
 
@@ -268,6 +274,11 @@ public enum L10n {
             .zhHans: "最近 30 天", .zhHant: "最近 30 天", .en: "Last 30 days"],
         .chartNoSamples: [
             .zhHans: "还没有采样数据", .zhHant: "還沒有取樣資料", .en: "No samples yet"],
+        // 缩略图版本。「有采样但画不出」和「没有采样」在缩略图里也得分开说 ——
+        // 说成「还没有采样数据」会让用户去排查一个并不存在的问题。
+        .chartNoPercentage: [
+            .zhHans: "这段采样没有可用上限", .zhHant: "這段取樣沒有可用上限",
+            .en: "No usable limit in this range"],
         .chartNoTokenDays: [
             .zhHans: "还没有按天数据", .zhHant: "還沒有按日資料", .en: "No daily data yet"],
 
@@ -288,10 +299,13 @@ public enum L10n {
             .zhHans: "最近 %d 小时", .zhHant: "最近 %d 小時", .en: "Last %d hours"],
         .historyRangeDaysFormat: [
             .zhHans: "最近 %d 天", .zhHant: "最近 %d 天", .en: "Last %d days"],
+        // 说的是**这段时间的采样**,不是当前配置 —— 判据已经从「现在的上限」
+        // 换成「这些点算不算得出百分比」,文案必须跟着换,否则会把两件事说反:
+        // 现在设了上限,不代表当时也设了。
         .historyNoLimitMessage: [
-            .zhHans: "这条额度没有设上限,无法换算成剩余百分比",
-            .zhHant: "這條額度沒有設上限,無法換算成剩餘百分比",
-            .en: "This quota has no limit, so there’s no percentage to show"],
+            .zhHans: "这段时间的采样都算不出剩余百分比 —— 当时没有设上限,或是升级前的老记录没有记下当时的上限。",
+            .zhHant: "這段時間的取樣都算不出剩餘百分比 —— 當時沒有設上限,或是升級前的舊紀錄沒有記下當時的上限。",
+            .en: "None of the samples in this range can be turned into a percentage — either there was no limit at the time, or the sample predates the upgrade that started recording limits."],
         .historyNoSamplesMessage: [
             .zhHans: "这段时间还没有采样。历史是从 app 装上那天开始攒的。",
             .zhHant: "這段時間還沒有取樣。歷史是從 app 安裝當天開始累積的。",
@@ -339,10 +353,6 @@ public enum L10n {
             .zhHans: "网址里的 apiId 只能查看用量,不能发起请求,也拿不到你的 API Key。",
             .zhHant: "網址裡的 apiId 只能檢視用量,不能發出請求,也拿不到你的 API Key。",
             .en: "The apiId in that URL can only read usage — it can’t make requests or reveal your API key."],
-        .setupPlaceholder: [
-            .zhHans: "https://你的域名/admin-next/api-stats?apiId=…",
-            .zhHant: "https://你的網域/admin-next/api-stats?apiId=…",
-            .en: "https://your-domain/admin-next/api-stats?apiId=…"],
         .setupTest: [
             .zhHans: "测试连接", .zhHant: "測試連線", .en: "Test connection"],
         .setupSave: [
@@ -352,14 +362,6 @@ public enum L10n {
             .en: "Which relays does this app support?"],
         .setupWaiting: [
             .zhHans: "等待输入", .zhHant: "等待輸入", .en: "Waiting for input"],
-        .setupNoApiId: [
-            .zhHans: "⚠︎ 网址里没找到 apiId,请复制完整地址(含 ?apiId=… 部分)",
-            .zhHant: "⚠︎ 網址裡沒找到 apiId,請複製完整位址(含 ?apiId=… 部分)",
-            .en: "⚠︎ No apiId found in that URL — copy the full address, including ?apiId=…"],
-        .setupParsable: [
-            .zhHans: "网址可解析。建议先「测试连接」确认能取到数据。",
-            .zhHant: "網址可解析。建議先「測試連線」確認能取得資料。",
-            .en: "URL looks valid. Try “Test connection” before saving."],
         .setupTesting: [
             .zhHans: "正在连接…", .zhHant: "正在連線…", .en: "Connecting…"],
         .setupSuccessFormat: [
@@ -399,6 +401,39 @@ public enum L10n {
         .errApiFailed: [
             .zhHans: "接口返回失败,apiId 可能不正确", .zhHant: "介面回傳失敗,apiId 可能不正確",
             .en: "The API reported a failure — the apiId may be wrong"],
+        .setupUnsupported: [
+            .zhHans: "认不出这个网址对应的服务,请确认它是中转站的用量统计页面",
+            .zhHant: "認不出這個網址對應的服務,請確認它是中轉站的用量統計頁面",
+            .en: "Couldn’t tell which service this URL belongs to — check that it’s a relay usage-stats page"],
+        .setupRecognizedFormat: [
+            .zhHans: "已识别:%@", .zhHant: "已識別:%@", .en: "Recognized: %@"],
+
+        // ── 连接报告里的提示 ──────────────────────────────
+        .findNoLimitedQuota: [
+            .zhHans: "没有任何带上限的额度,无法显示百分比和消费速度",
+            .zhHant: "沒有任何帶上限的額度,無法顯示百分比與消費速度",
+            .en: "No quota has a limit — percentages and pace can’t be shown"],
+        .findIncompleteUsage: [
+            .zhHans: "响应缺少部分用量字段,这次的数字不会计入历史",
+            .zhHant: "回應缺少部分用量欄位,這次的數字不會計入歷史",
+            .en: "Some usage fields are missing — this reading won’t enter history"],
+        .findDailyResetInferred: [
+            .zhHans: "接口不提供日重置时刻,将由观测推算,在此之前标注为推算",
+            .zhHant: "介面不提供日重置時刻,將由觀測推算,在此之前標註為推算",
+            .en: "The API doesn’t publish the daily reset hour — it will be inferred and labelled as such"],
+        .findNoResetWindow: [
+            .zhHans: "没有可信的重置周期,速度判断不可用",
+            .zhHant: "沒有可信的重置週期,速度判斷不可用",
+            .en: "No trustworthy reset period — the pace verdict is unavailable"],
+        .findHistoryIsLocalOnly: [
+            .zhHans: "接口没有历史查询,历史将从今天起本地积累",
+            .zhHant: "介面沒有歷史查詢,歷史將從今天起本地累積",
+            .en: "The API has no history endpoint — history accumulates locally from today"],
+
+        .errInvalidFieldFormat: [
+            .zhHans: "响应里的字段「%@」类型不对,本次数据已丢弃",
+            .zhHant: "回應裡的欄位「%@」型別不對,本次資料已捨棄",
+            .en: "Field “%@” in the response has the wrong type — this reading was discarded"],
         .errHistoryStore: [
             .zhHans: "历史数据库出错", .zhHant: "歷史資料庫發生錯誤",
             .en: "History database error"],

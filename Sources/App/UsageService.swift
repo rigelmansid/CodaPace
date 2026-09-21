@@ -14,11 +14,24 @@ final class UsageService: ObservableObject {
 
     @Published private(set) var snapshot: Snapshot?
     @Published private(set) var errorText: String?
-    @Published private(set) var isLoading = false
+
+    /// 刷新准入。用「在飞的是哪个账户」而不是一个布尔量 —— 理由见 Core/Account.swift。
+    /// @Published 是为了 isLoading 变化时面板上的刷新按钮能跟着变灰。
+    @Published private var gate = RefreshGate()
+
+    var isLoading: Bool { gate.isLoading }
 
     /// 本地时钟。每 30 秒推进一次,让倒计时和 pace 在两次网络刷新之间也保持新鲜 ——
     /// 旧版本的「还有 x 分钟重置」是跟着 60 秒一次的网络刷新走的,中间一直是过期的。
     @Published private(set) var now = Date()
+
+    /// 账户换过几次。**只是一个变更信号**,不是账户本身的副本 ——
+    /// 账户的唯一事实仍在 `Config.account`,在这里再存一份迟早会漂移。
+    ///
+    /// 图表需要它:换账户就是换一整个历史库,而这件事**不一定伴随快照变化**。
+    /// 两个账户都离线时 `snapshot` 前后都是 nil,单看它观察不到任何变化,
+    /// 开着的窗口会一直画着上一个账户的曲线。
+    @Published private(set) var accountGeneration = 0
 
     // 下面三个设置项都写回 UserDefaults,重启后保持。
     // 用 @Published 而不是每次读 Config,是为了改动后界面能立刻重绘。
@@ -53,6 +66,11 @@ final class UsageService: ObservableObject {
     // MARK: 生命周期
 
     func start() {
+        // 旧版把日重置小时和通知去重账本都存成全局值,不区分账户。
+        // 一并丢掉,各账户自己重建。
+        Config.discardLegacyGlobalResetHour()
+        Notifier.discardLegacyGlobalLedger()
+
         restartRefreshTimer()
 
         tickTimer = Timer.scheduledTimer(withTimeInterval: 30, repeats: true) { [weak self] _ in
@@ -72,32 +90,75 @@ final class UsageService: ObservableObject {
         refreshTimer?.tolerance = interval * 0.2
     }
 
+    // MARK: 账户切换
+
+    /// 换账户:写入配置,清掉属于旧账户的展示状态,然后立刻为新账户拉一次。
+    ///
+    /// 在飞的旧刷新**不需要**在这里取消 —— 它回来时过不了提交前的身份校验,会自己作废。
+    /// 而它也挡不住下面这次刷新:`RefreshGate` 按账户判断重入,账户不同就放行。
+    func applyAccount(_ account: AccountIdentity) {
+        let changed = account != Config.account
+        Config.apply(account)
+
+        if changed {
+            // 旧账户的数字不能挂在新账户的名字底下,哪怕只是新数据到达前的几百毫秒
+            snapshot = nil
+            errorText = nil
+            now = Date()
+
+            // 去重账本现在按账户分命名空间,不必清空 ——
+            // 切回旧账户时,它已经发过的告警仍该保持去重
+            Notifier.shared.accountDidChange()
+
+            // 丢掉旧账户的 token 基线,换库
+            HistoryRecorder.shared.accountDidChange()
+
+            // 放在最后:换库之后再通知界面,读到的才是新账户的历史。
+            // 图表靠它重读 —— 两个账户都离线时,上面那些 nil 赋值不产生任何变化。
+            accountGeneration += 1
+        }
+
+        restartRefreshTimer()
+        Task { await refresh() }
+    }
+
     // MARK: 刷新
 
     func refresh() async {
-        guard Config.isConfigured, !isLoading else { return }
-        isLoading = true
-        defer { isLoading = false }
+        // 全流程只认这一份身份:两个请求、落库、通知都用它。
+        // 中途再去读 Config 就会出现一次刷新横跨两个账户 —— 那正是这里要防的事。
+        let account = Config.account
+        guard gate.begin(account) else { return }
+        defer { gate.finish(account) }
 
         do {
-            let stats = try await API.userStats()
-            // 本月消费是锦上添花,取不到不影响主结果
-            let monthly = try? await API.monthlyUsage()
+            // 协议细节全在适配器里:通用层只说「给这个账户拉一次用量」。
+            // 新增供应商不该让这段流程长出任何分支 —— 那正是适配器边界存在的理由。
+            let adapter = ProviderRegistry.adapter(for: account)
+            let built = try await adapter.fetchUsage(account,
+                                                     schedule: Config.schedule(for: account),
+                                                     language: Config.language)
 
-            now = Date()
-            let built = SnapshotBuilder.build(stats: stats,
-                                              monthly: monthly,
-                                              schedule: Config.schedule,
-                                              now: now)
+            // 提交前校验身份:上面的 await 期间用户可能已经换了账户。
+            // 那这份结果属于上一个账户 —— 既不能显示,也不能写进新账户的历史,
+            // 更不能拿它去触发新账户的通知。整份丢掉,新账户自己那次刷新会补上。
+            guard Config.account == account else { return }
+
+            // fetchedAt 是适配器在拿到数据之后打的点,倒计时和 pace 都按它算
+            now = built.fetchedAt
             snapshot = built
             errorText = nil
 
-            // 落一条历史采样。存储出问题不影响主功能,内部自己吞掉错误。
-            HistoryRecorder.shared.record(built)
+            // 落一条历史采样。分区键由**传进去的**身份决定,不是当时的全局配置。
+            // 存储出问题不影响主功能,内部自己吞掉错误。
+            HistoryRecorder.shared.record(built, account: account)
 
             // 该不该发通知由 Core 的 AlertPolicy 判断,这里只是触发点
-            Notifier.shared.process(built, now: now)
+            Notifier.shared.process(built, now: now, account: account)
         } catch {
+            // 同样要校验:旧账户的失败不该盖在新账户头上显示成 Offline
+            guard Config.account == account else { return }
+
             // 刷新失败时**保留**上一次的快照,只把错误记下来。
             // 菜单栏留着旧数字,总好过突然空白。
             errorText = error.localizedDescription
@@ -150,60 +211,5 @@ final class UsageService: ObservableObject {
                           style: menuBarStyle,
                           value: menuBarValue,
                           caption: menuBarCaption)
-    }
-}
-
-// MARK: - 接口调用
-
-enum API {
-
-    /// 显式传凭据的版本 —— 设置界面在**保存之前**用它验证网址是否可用
-    static func userStats(base: String, apiId: String) async throws -> UserStats {
-        try await post(base: base,
-                       path: "/apiStats/api/user-stats",
-                       body: ["apiId": apiId],
-                       as: UserStats.self)
-    }
-
-    static func userStats() async throws -> UserStats {
-        try await userStats(base: Config.baseURL, apiId: Config.apiId)
-    }
-
-    private struct BatchAggregated: Decodable { let monthlyUsage: UsageBlock? }
-    private struct BatchData: Decodable { let aggregated: BatchAggregated? }
-
-    static func monthlyUsage() async throws -> UsageBlock? {
-        let batch = try await post(base: Config.baseURL,
-                                   path: "/apiStats/api/batch-stats",
-                                   body: ["apiIds": [Config.apiId]],
-                                   as: BatchData.self)
-        return batch.aggregated?.monthlyUsage
-    }
-
-    // MARK: 底层
-
-    private static func post<T: Decodable>(base: String,
-                                           path: String,
-                                           body: Any,
-                                           as type: T.Type) async throws -> T {
-        // Config 不受 actor 隔离,后台任务里读它是安全的
-        let language = Config.language
-
-        guard let url = URL(string: base + path) else {
-            throw APIError(L10n.format(.errInvalidURLFormat, language, base))
-        }
-
-        var req = URLRequest(url: url, timeoutInterval: 15)
-        req.httpMethod = "POST"
-        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        req.httpBody = try? JSONSerialization.data(withJSONObject: body)
-        req.cachePolicy = .reloadIgnoringLocalCacheData
-
-        let (data, response) = try await URLSession.shared.data(for: req)
-
-        if let http = response as? HTTPURLResponse, !(200..<300).contains(http.statusCode) {
-            throw APIError(L10n.format(.errHTTPFormat, language, http.statusCode))
-        }
-        return try ResponseDecoder.unwrap(type, from: data, language: language)
     }
 }

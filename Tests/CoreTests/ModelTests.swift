@@ -74,6 +74,135 @@ final class DecodingTests: XCTestCase {
     }
 }
 
+// MARK: - 缺失 / null / 类型错误
+
+/// 一份六个必要数值都齐全的响应,供各用例按需改坏某一处
+private let completePayload = #"""
+{
+  "name": "eva", "isActive": true,
+  "usage": { "total": { "allTokens": 1000, "requests": 10, "cost": 5 } },
+  "limits": {
+    "currentTotalCost": 100, "currentDailyCost": 42,
+    "weeklyOpusCost": 7, "currentWindowCost": 3,
+    "dailyCostLimit": 70, "totalCostLimit": 3000
+  }
+}
+"""#
+
+final class FieldValidityTests: XCTestCase {
+
+    // ── 类型错误:拒绝整份响应 ──────────────────────────
+
+    /// 数字位置上是非数字字符串 —— 正是 OPT-004 举的例子。
+    /// 从前它会被悄悄解成 0,然后当作「真的花了 0 块钱」写进历史。
+    func testNonNumericStringIsRejected() {
+        let payload = #"{"limits": {"currentDailyCost": "abc"}}"#
+        XCTAssertThrowsError(try JSONDecoder().decode(UserStats.self, from: json(payload))) { error in
+            XCTAssertEqual(error as? InvalidFieldError, InvalidFieldError(field: "currentDailyCost"))
+        }
+    }
+
+    /// limits 整块类型不对(这里是个字符串)
+    func testWronglyTypedLimitsObjectIsRejected() {
+        let payload = #"{"limits": "nope"}"#
+        XCTAssertThrowsError(try JSONDecoder().decode(UserStats.self, from: json(payload))) { error in
+            XCTAssertEqual(error as? InvalidFieldError, InvalidFieldError(field: "limits"))
+        }
+    }
+
+    func testWronglyTypedUsageObjectIsRejected() {
+        let payload = #"{"usage": []}"#
+        XCTAssertThrowsError(try JSONDecoder().decode(UserStats.self, from: json(payload))) { error in
+            XCTAssertEqual(error as? InvalidFieldError, InvalidFieldError(field: "usage"))
+        }
+    }
+
+    /// 报出来的必须是**最里层**那个坏字段,而不是笼统的 "usage"
+    func testNestedInvalidFieldKeepsItsOwnName() {
+        let payload = #"{"usage": {"total": {"allTokens": "lots"}}}"#
+        XCTAssertThrowsError(try JSONDecoder().decode(UserStats.self, from: json(payload))) { error in
+            XCTAssertEqual(error as? InvalidFieldError, InvalidFieldError(field: "allTokens"))
+        }
+    }
+
+    /// 错误信息里要带上字段名 —— 对着一个自建中转站,不点名根本没法排查
+    func testUnwrapSurfacesTheOffendingFieldName() {
+        let body = #"{"success": true, "data": {"limits": {"currentDailyCost": "abc"}}}"#
+        XCTAssertThrowsError(
+            try ResponseDecoder.unwrap(UserStats.self, from: Data(body.utf8), language: .en)
+        ) { error in
+            XCTAssertTrue((error as? APIError)?.message.contains("currentDailyCost") ?? false)
+        }
+    }
+
+    // ── 缺失 / null:容忍解码,但标记用量不完整 ──────────────
+
+    func testCompleteResponseIsMarkedComplete() {
+        let stats = try! JSONDecoder().decode(UserStats.self, from: json(completePayload))
+        XCTAssertTrue(stats.hasCompleteUsage)
+    }
+
+    func testMissingRequiredCostMakesUsageIncomplete() {
+        let payload = #"""
+        {"usage": {"total": {"allTokens": 1000, "requests": 10}},
+         "limits": {"currentTotalCost": 100, "currentDailyCost": 42, "weeklyOpusCost": 7}}
+        """#
+        let stats = try! JSONDecoder().decode(UserStats.self, from: json(payload))
+        XCTAssertFalse(stats.hasCompleteUsage)          // 少了 currentWindowCost
+        XCTAssertEqual(stats.limits.currentWindowCost, 0, accuracy: 1e-12)
+    }
+
+    /// null 和缺失同等对待:照样能解,照样算不完整
+    func testNullRequiredCostMakesUsageIncomplete() {
+        let payload = #"""
+        {"usage": {"total": {"allTokens": 1000, "requests": 10}},
+         "limits": {"currentTotalCost": 100, "currentDailyCost": null,
+                    "weeklyOpusCost": 7, "currentWindowCost": 3}}
+        """#
+        let stats = try! JSONDecoder().decode(UserStats.self, from: json(payload))
+        XCTAssertFalse(stats.hasCompleteUsage)
+        XCTAssertEqual(stats.limits.currentDailyCost, 0, accuracy: 1e-12)
+    }
+
+    func testMissingUsageTotalsMakeUsageIncomplete() {
+        let payload = #"""
+        {"limits": {"currentTotalCost": 100, "currentDailyCost": 42,
+                    "weeklyOpusCost": 7, "currentWindowCost": 3}}
+        """#
+        let stats = try! JSONDecoder().decode(UserStats.self, from: json(payload))
+        XCTAssertFalse(stats.hasCompleteUsage)
+    }
+
+    /// 可选字段缺失不该把整份响应打成不完整 —— 否则等于退回「什么都不敢信」
+    func testMissingOptionalFieldsStayComplete() {
+        let stats = try! JSONDecoder().decode(UserStats.self, from: json(completePayload))
+        XCTAssertTrue(stats.hasCompleteUsage)
+        XCTAssertEqual(stats.limits.weeklyResetDay, -1)      // 没给
+        XCTAssertEqual(stats.limits.concurrencyLimit, 0)     // 没给
+        XCTAssertEqual(stats.limits.rateLimitCost, 0, accuracy: 1e-12)
+    }
+
+    /// 实测响应的结构必须仍然被认作完整,别把真实部署挡在门外
+    func testRealResponseShapeStaysComplete() {
+        let payload = #"""
+        {
+          "name": "eva", "isActive": true,
+          "usage": { "total": { "allTokens": 2152951760, "requests": 25024, "cost": 2432.68887395 } },
+          "limits": {
+            "rateLimitWindow": 60, "rateLimitCost": 20,
+            "dailyCostLimit": 70, "totalCostLimit": 3000, "weeklyOpusCostLimit": 500,
+            "weeklyResetDay": 1, "weeklyResetHour": 0,
+            "currentWindowCost": 3.80129775, "currentDailyCost": 3.80129775,
+            "currentTotalCost": 2432.68887395, "weeklyOpusCost": 11.2342345,
+            "windowStartTime": 1788797068749, "windowEndTime": 1788800668749,
+            "windowRemainingSeconds": 1317
+          }
+        }
+        """#
+        XCTAssertTrue(try! JSONDecoder().decode(UserStats.self, from: json(payload)).hasCompleteUsage)
+    }
+}
+
 // MARK: - 信封
 
 final class EnvelopeTests: XCTestCase {
@@ -241,7 +370,7 @@ final class MenuBarSourceTests: XCTestCase {
 
 // MARK: - 组装快照
 
-final class SnapshotBuilderTests: XCTestCase {
+final class RelaySnapshotMappingTests: XCTestCase {
 
     func testBuildsFourGaugesInDisplayOrder() {
         var stats = UserStats()
@@ -252,7 +381,7 @@ final class SnapshotBuilderTests: XCTestCase {
         stats.limits.weeklyOpusCostLimit = 500
         stats.limits.rateLimitCost = 20
 
-        let snap = SnapshotBuilder.build(
+        let snap = RelayProvider().buildSnapshot(
             stats: stats, monthly: nil,
             schedule: ResetSchedule(timeZone: TimeZone(identifier: "Asia/Shanghai")!),
             now: Date(timeIntervalSince1970: 1_788_800_000)
@@ -264,7 +393,7 @@ final class SnapshotBuilderTests: XCTestCase {
 
     /// 总额度没有重置周期,不应被安上时间窗口
     func testTotalGaugeNeverGetsAWindow() {
-        let snap = SnapshotBuilder.build(
+        let snap = RelayProvider().buildSnapshot(
             stats: UserStats(), monthly: nil,
             schedule: ResetSchedule(), now: Date()
         )
@@ -272,7 +401,7 @@ final class SnapshotBuilderTests: XCTestCase {
     }
 
     func testEmptyNameFallsBackToPlaceholder() {
-        let snap = SnapshotBuilder.build(
+        let snap = RelayProvider().buildSnapshot(
             stats: UserStats(), monthly: nil, schedule: ResetSchedule(), now: Date()
         )
         XCTAssertEqual(snap.name, "API Key")

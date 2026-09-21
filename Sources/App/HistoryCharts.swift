@@ -44,28 +44,38 @@ final class HistoryModel: ObservableObject {
     @Published private(set) var tokenBars: [TokenBar] = []
     @Published private(set) var sampleCount = 0
 
+    /// 曲线时间范围内**一共有多少条采样**,不管画不画得出点。
+    ///
+    /// `quotaPoints` 为空有两种完全不同的原因,而空数组本身区分不出来:
+    /// 一是这段时间根本没有采样,二是有采样但一条都算不出百分比
+    /// (当时不限额,或升级前的老记录没记过上限)。界面要对用户说清是哪一种,
+    /// 就必须有这第二个信号。
+    @Published private(set) var quotaSamplesInRange = 0
+
     /// - Parameters:
-    ///   - kind/limit: 要画哪条额度,以及它的上限(不限时画不出百分比)
-    ///   - window: 该额度当前的重置周期。用来把历史上每次重置的确切时刻推算出来。
+    ///   - kind: 要画哪条额度
+    ///   - rule: 该额度的重置规则。用来把历史上每次重置的确切时刻按其自身算法推出来。
     ///   - quotaDays: 额度曲线往前取多少天
     ///   - tokenDays: token 柱状图往前取多少天(通常比曲线长得多)
-    func reload(kind: QuotaKind, limit: Double, window: TimeWindow?,
+    ///
+    /// 这里**刻意不收当前上限**:每个历史点用的是它自己那条采样当时的上限
+    /// (见 `QuotaSeriesBuilder.build`),当前上限在绘图里没有任何位置。
+    func reload(kind: QuotaKind, rule: ResetRule?,
                 quotaDays: Int, tokenDays: Int) {
         let to = Date()
         let recorder = HistoryRecorder.shared
 
         let samples = recorder.samples(from: to.addingTimeInterval(-Double(quotaDays) * 86400),
                                        to: to)
-        quotaPoints = QuotaSeriesBuilder.build(samples: samples, kind: kind, limit: limit)
+        quotaSamplesInRange = samples.count
 
-        // 重置周期等长重复,知道当前周期的起点就能推出历史上任意一次
-        let cycleStart: ((Date) -> Date?)? = window.map { w in
-            { moment in w.cycleStart(containing: moment) }
-        }
+        // 重置边界和「是否跨过重置」都由这条规则算,不会两处不一致。
+        // 规则算不出周期(滑动窗口、未知)时,退回「计数器下降」这条补充证据。
+        quotaPoints = QuotaSeriesBuilder.build(samples: samples, kind: kind, rule: rule)
+
         quotaConnectors = QuotaSeriesBuilder.connectors(samples: samples,
                                                         kind: kind,
-                                                        limit: limit,
-                                                        cycleStart: cycleStart)
+                                                        rule: rule)
         gaps = QuotaSeriesBuilder.gaps(samples: samples).map { GapSpan(from: $0.from, to: $0.to) }
 
         tokenBars = TokenSeriesBuilder.build(
@@ -133,6 +143,8 @@ struct QuotaChart: View {
 
             // 虚线连接段:表示「这一段是连出来的,不是实测的」。
             // 每段各自成 series,否则几段虚线会被首尾串成一条。
+            //
+            // 边界时刻本身是推算的那些画得更淡 —— 未知不能和已知长得一样。
             ForEach(indexedConnectors) { item in
                 LineMark(
                     x: .value("时间", item.connector.from.at),
@@ -140,7 +152,8 @@ struct QuotaChart: View {
                     series: .value("段", "c\(item.id)")
                 )
                 .lineStyle(dash)
-                .foregroundStyle(Color.accentColor.opacity(0.45))
+                .foregroundStyle(Color.accentColor.opacity(item.connector.isBoundaryInferred
+                                                          ? 0.22 : 0.45))
 
                 LineMark(
                     x: .value("时间", item.connector.to.at),
@@ -148,7 +161,8 @@ struct QuotaChart: View {
                     series: .value("段", "c\(item.id)")
                 )
                 .lineStyle(dash)
-                .foregroundStyle(Color.accentColor.opacity(0.45))
+                .foregroundStyle(Color.accentColor.opacity(item.connector.isBoundaryInferred
+                                                          ? 0.22 : 0.45))
             }
 
             ForEach(indexed) { item in

@@ -42,13 +42,13 @@ public struct TimeWindow: Equatable {
         1 - elapsedRatio(now: now)
     }
 
-    /// 按本窗口的长度往回推,得到包含给定时刻的那个周期的起点。
-    /// 用来定位历史上某次重置发生的确切时刻 —— 重置周期是等长重复的,
-    /// 知道当前周期的起点就能推出过去任意一个。
-    public func cycleStart(containing moment: Date) -> Date? {
-        guard duration > 0 else { return nil }
-        let periods = (start.timeIntervalSince(moment) / duration).rounded(.up)
-        return start.addingTimeInterval(-periods * duration)
+    /// 这个时刻落在本周期里吗。右端开区间:走到 end 就已经是下一个周期了。
+    ///
+    /// 历史上某次重置发生在什么时刻,**不要**拿本窗口的秒数长度往回减 ——
+    /// 那假定所有周期等长,而「每天当地 0 点」在夏令时切换日只有 23 小时。
+    /// 该由 ResetRule.period(containing:) 按各自的规则算。
+    public func contains(_ moment: Date) -> Bool {
+        moment >= start && moment < end
     }
 }
 
@@ -126,11 +126,17 @@ public struct Gauge: Equatable {
     public let limit: Double          // 0 表示不限
     public let window: TimeWindow?    // nil 表示没有时间维度
 
-    public init(kind: QuotaKind, used: Double, limit: Double, window: TimeWindow? = nil) {
+    /// 产生 window 的那条规则。历史图靠它按**各自的算法**反推过去的周期边界 ——
+    /// 统一按秒数往回减会在夏令时切换日错位。没有规则时就不画重置虚线。
+    public let rule: ResetRule?
+
+    public init(kind: QuotaKind, used: Double, limit: Double,
+                window: TimeWindow? = nil, rule: ResetRule? = nil) {
         self.kind = kind
         self.used = used
         self.limit = limit
         self.window = window
+        self.rule = rule
     }
 
     public func label(_ language: Language) -> String { kind.label(language) }
@@ -151,9 +157,15 @@ public struct Gauge: Equatable {
     // MARK: 速度判断
 
     /// paceDelta = 剩余额度% − 剩余时间%
-    /// >= 0 正常;< 0 超速。没有窗口就是 .unavailable —— 绝不臆造。
+    /// >= 0 正常;< 0 超速。算不出就是 .unavailable —— 绝不臆造。
+    ///
+    /// **窗口必须包含此刻**。窗口一旦走完,剩余时间归零,于是任何还有余额的旧数据
+    /// 都会算成「正常速度」—— 断网跨过重置时刻就是这个情形:那句「正常」
+    /// 没有任何当期数据支撑,纯粹是过期窗口的算术副产品。
+    /// 旧快照可以继续显示数字,但不该配一个它撑不起的判断。
     public func pace(now: Date) -> PaceVerdict {
-        guard !unlimited, let window, window.duration > 0 else { return .unavailable }
+        guard !unlimited, let window, window.duration > 0, window.contains(now)
+        else { return .unavailable }
 
         let delta = remainingRatio - window.remainingRatio(now: now)
         return delta >= 0 ? .onPace(delta: delta) : .overPace(delta: delta)

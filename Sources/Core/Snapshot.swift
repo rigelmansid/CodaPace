@@ -31,9 +31,14 @@ public struct Snapshot: Equatable {
 
     public let fetchedAt: Date
 
+    /// 这份快照的用量数值是不是都真的观测到了。false 表示响应里有必要字段缺失或为 null,
+    /// 相应的数字是退回来的 0 —— 可以显示,但**不能进历史**。理由见 `UserStats.hasCompleteUsage`。
+    public let hasCompleteUsage: Bool
+
     public init(name: String, isActive: Bool, gauges: [Gauge],
                 totalCost: Double, totalRequests: Int, totalTokens: Double,
-                monthlyCost: Double?, monthlyRequests: Int?, fetchedAt: Date) {
+                monthlyCost: Double?, monthlyRequests: Int?, fetchedAt: Date,
+                hasCompleteUsage: Bool = true) {
         self.name = name
         self.isActive = isActive
         self.gauges = gauges
@@ -43,6 +48,7 @@ public struct Snapshot: Equatable {
         self.monthlyCost = monthlyCost
         self.monthlyRequests = monthlyRequests
         self.fetchedAt = fetchedAt
+        self.hasCompleteUsage = hasCompleteUsage
     }
 
     public func gauge(_ kind: QuotaKind) -> Gauge? {
@@ -72,52 +78,5 @@ public struct Snapshot: Equatable {
             return candidates.min { $0.remainingRatio < $1.remainingRatio }
                 ?? limited.first
         }
-    }
-}
-
-// MARK: - 组装
-
-public enum SnapshotBuilder {
-
-    public static func build(stats: UserStats,
-                             monthly: UsageBlock?,
-                             schedule: ResetSchedule,
-                             now: Date) -> Snapshot {
-        let L = stats.limits
-
-        let gauges: [Gauge] = [
-            // 账户总配额:没有重置周期,所以没有窗口,也就不做速度判断
-            Gauge(kind: .total,
-                  used: L.currentTotalCost,
-                  limit: L.totalCostLimit,
-                  window: nil),
-
-            Gauge(kind: .daily,
-                  used: L.currentDailyCost,
-                  limit: L.dailyCostLimit,
-                  window: schedule.dailyInterval(now: now)),
-
-            Gauge(kind: .weeklyOpus,
-                  used: L.weeklyOpusCost,
-                  limit: L.weeklyOpusCostLimit,
-                  window: schedule.weeklyInterval(limits: L, now: now)),
-
-            Gauge(kind: .window,
-                  used: L.currentWindowCost,
-                  limit: L.rateLimitCost,
-                  window: schedule.windowInterval(limits: L, now: now)),
-        ]
-
-        return Snapshot(
-            name: stats.name.isEmpty ? "API Key" : stats.name,
-            isActive: stats.isActive,
-            gauges: gauges,
-            totalCost: stats.total.cost,
-            totalRequests: stats.total.requests,
-            totalTokens: stats.total.allTokens,
-            monthlyCost: monthly?.cost,
-            monthlyRequests: monthly?.requests,
-            fetchedAt: now
-        )
     }
 }

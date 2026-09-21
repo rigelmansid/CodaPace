@@ -1,0 +1,216 @@
+//
+//  RelayProvider.swift — claude-relay-service 适配器
+//
+//  这是第一个适配器,也是把现有实现原样搬进适配器边界的那一次迁移:
+//  两个接口路径、响应形状、管理后台地址,全部收在这个文件里。
+//  通用层从此只认 UsageProviderAdapter,不再知道 /apiStats 是什么。
+//
+//  Models.swift 里的 UserStats / Limits / Envelope 是**这个供应商的线上格式**,
+//  以后接入别家时它们不该被复用,而是各自在各自的适配器里定义。
+//
+
+import Foundation
+
+public struct RelayProvider: UsageProviderAdapter {
+
+    public static let id = "claude-relay-service"
+
+    public init() {}
+
+    public var providerID: String { Self.id }
+    public var displayName: String { "claude-relay-service" }
+
+    /// apiId 是只读统计标识:发不了 API 请求,也拿不到 API Key ——
+    /// 所以明文存储可接受。这是**这家的性质**,不是通用前提。
+    public var credentialSensitivity: CredentialSensitivity { .readOnlyIdentifier }
+
+    public var inputExample: String { "https://your-relay.example.com/admin-next/api-stats?apiId=…" }
+
+    /// 这个中转站给什么、不给什么。
+    ///
+    /// 两个「不给」是有实际后果的,不是凑数:
+    /// · 没有 `dailyResetTime` —— 接口根本没有日重置字段,所以 app 要自己观测,
+    ///   在观测到之前界面上如实标注「推算」。
+    /// · 没有 `usageHistory` —— 只报当前值,所以历史只能从装上那天开始本地积累。
+    public var capabilities: ProviderCapabilities {
+        [.costAmounts, .cumulativeTokens, .cumulativeRequests,
+         .windowResetTimes, .weeklyResetSchedule, .monthlyAggregate]
+    }
+
+    // MARK: - 识别与解析
+
+    /// 用量页面的路径特征。
+    ///
+    /// 刻意**不看域名** —— 自建中转站什么域名都有,拿域名判断只会既漏又误。
+    /// 而且这只是候选提示:真正的确认靠 `fetchUsage` 跑一次真请求。
+    public func detect(_ input: String) -> Bool {
+        guard let comps = URLComponents(string: input.trimmingCharacters(in: .whitespacesAndNewlines))
+        else { return false }
+        return comps.path.contains(Self.statsPath)
+            || comps.queryItems?.contains { $0.name == "apiId" } == true
+    }
+
+    /// 例:https://api.example.com/admin-next/api-stats?apiId=xxxx
+    public func parseConnection(_ input: String) -> AccountIdentity? {
+        let text = input.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let comps = URLComponents(string: text),
+              let scheme = comps.scheme,
+              let host = comps.host,
+              let apiId = comps.queryItems?.first(where: { $0.name == "apiId" })?.value,
+              !apiId.isEmpty
+        else { return nil }
+
+        var base = "\(scheme)://\(host)"
+        if let port = comps.port { base += ":\(port)" }
+
+        // 部署在子路径下时(反代挂在 /relay 之类),统计接口也在同一个前缀底下。
+        // 只取 scheme://host 会把请求发到根路径上去 —— 那台机器上根本没有 /apiStats。
+        base += pathPrefix(of: comps.path)
+
+        return AccountIdentity(providerID: providerID, baseURL: base, apiId: apiId)
+    }
+
+    /// 用量页面路径里位于 `/admin-next/api-stats` **之前**的那一段。
+    /// 没有这个路径(比如用户只给了带 apiId 的其它链接)时返回空串。
+    private func pathPrefix(of path: String) -> String {
+        guard let range = path.range(of: Self.statsPath) else { return "" }
+        let prefix = String(path[path.startIndex..<range.lowerBound])
+        return prefix == "/" ? "" : prefix
+    }
+
+    private static let statsPath = "/admin-next/api-stats"
+
+    public func managementURL(for account: AccountIdentity) -> URL? {
+        guard account.isConfigured else { return nil }
+        return URL(string: "\(account.baseURL)\(Self.statsPath)?apiId=\(account.apiId)")
+    }
+
+    // MARK: - 抓取
+
+    public func fetchUsage(_ account: AccountIdentity, schedule: ResetSchedule,
+                           language: Language) async throws -> Snapshot {
+        let stats = try await userStats(account, language: language)
+
+        // 本月消费是锦上添花,取不到不影响主结果
+        let monthly = try? await monthlyUsage(account, language: language)
+
+        // 打点放在拿到数据之后 —— fetchedAt 是「这份数字什么时候到手的」,
+        // 不是「什么时候发的请求」。倒计时和 pace 都按它算。
+        return buildSnapshot(stats: stats, monthly: monthly,
+                             schedule: schedule, now: Date())
+    }
+
+    // MARK: - 两个接口
+
+    /// 凭据一律显式传入,这里不读任何全局配置 ——
+    /// 一次刷新必须全程绑定同一个身份,中途回头读配置就会横跨两个账户。
+    func userStats(_ account: AccountIdentity, language: Language) async throws -> UserStats {
+        try await post(base: account.baseURL,
+                       path: "/apiStats/api/user-stats",
+                       body: ["apiId": account.apiId],
+                       as: UserStats.self,
+                       language: language)
+    }
+
+    private struct BatchAggregated: Decodable { let monthlyUsage: UsageBlock? }
+    private struct BatchData: Decodable { let aggregated: BatchAggregated? }
+
+    func monthlyUsage(_ account: AccountIdentity, language: Language) async throws -> UsageBlock? {
+        let batch = try await post(base: account.baseURL,
+                                   path: "/apiStats/api/batch-stats",
+                                   body: ["apiIds": [account.apiId]],
+                                   as: BatchData.self,
+                                   language: language)
+        return batch.aggregated?.monthlyUsage
+    }
+
+    // MARK: - 底层
+
+    private func post<T: Decodable>(base: String,
+                                    path: String,
+                                    body: Any,
+                                    as type: T.Type,
+                                    language: Language) async throws -> T {
+        guard let url = URL(string: base + path) else {
+            throw APIError(L10n.format(.errInvalidURLFormat, language, base))
+        }
+
+        var req = URLRequest(url: url, timeoutInterval: 15)
+        req.httpMethod = "POST"
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        req.httpBody = try? JSONSerialization.data(withJSONObject: body)
+        req.cachePolicy = .reloadIgnoringLocalCacheData
+
+        let (data, response) = try await URLSession.shared.data(for: req)
+
+        if let http = response as? HTTPURLResponse, !(200..<300).contains(http.statusCode) {
+            throw APIError(L10n.format(.errHTTPFormat, language, http.statusCode))
+        }
+        return try ResponseDecoder.unwrap(type, from: data, language: language)
+    }
+}
+
+// MARK: - 响应映射
+
+// 把这个中转站的线上格式映射成通用快照。**属于适配器**,不属于通用层:
+// 它认识 currentTotalCost / weeklyOpusCost 这些字段名,也认识「四条固定额度」这个形状。
+// 换一家供应商,这段就该整体换掉,而不是在里面加分支。
+// (EXT-001 会把「四条固定额度」一般化成动态额度桶,那时每个适配器各自产出自己的桶。)
+extension RelayProvider {
+
+    /// public 是为了能单测这段映射(测试是独立模块)。
+    /// 它不是给通用层调用的 —— 通用层只该经由 `fetchUsage` 拿到 Snapshot。
+    public func buildSnapshot(stats: UserStats,
+                              monthly: UsageBlock?,
+                              schedule: ResetSchedule,
+                              now: Date) -> Snapshot {
+        let L = stats.limits
+
+        // 每条额度都带上「它怎么重置」这条规则,历史图才能按各自的算法反推周期边界。
+        // 窗口仍是此刻这一段:限流窗口过期时**不外推**,让 pace 变成不可判断。
+        let dailyRule = schedule.dailyRule()
+        let weeklyRule = schedule.weeklyRule(limits: L)
+        let windowRule = schedule.windowRule(limits: L, now: now)
+
+        let gauges: [Gauge] = [
+            // 账户总配额:没有重置周期,所以没有窗口,也就不做速度判断
+            Gauge(kind: .total,
+                  used: L.currentTotalCost,
+                  limit: L.totalCostLimit,
+                  window: nil,
+                  rule: nil),
+
+            Gauge(kind: .daily,
+                  used: L.currentDailyCost,
+                  limit: L.dailyCostLimit,
+                  window: dailyRule.period(containing: now),
+                  rule: dailyRule),
+
+            Gauge(kind: .weeklyOpus,
+                  used: L.weeklyOpusCost,
+                  limit: L.weeklyOpusCostLimit,
+                  window: weeklyRule?.period(containing: now),
+                  rule: weeklyRule),
+
+            Gauge(kind: .window,
+                  used: L.currentWindowCost,
+                  limit: L.rateLimitCost,
+                  window: schedule.windowInterval(limits: L, now: now),
+                  rule: windowRule),
+        ]
+
+        return Snapshot(
+            name: stats.name.isEmpty ? "API Key" : stats.name,
+            isActive: stats.isActive,
+            gauges: gauges,
+            totalCost: stats.total.cost,
+            totalRequests: stats.total.requests,
+            totalTokens: stats.total.allTokens,
+            monthlyCost: monthly?.cost,
+            monthlyRequests: monthly?.requests,
+            fetchedAt: now,
+            // 本月消费是锦上添花,取不到也不影响主结果,所以不参与这个判断
+            hasCompleteUsage: stats.hasCompleteUsage
+        )
+    }
+}

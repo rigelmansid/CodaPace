@@ -80,19 +80,83 @@ public enum AlertPolicy {
         }
     }
 
-    /// 去掉本周期内已经发过的
-    public static func newAlerts(for snapshot: Snapshot,
-                                 now: Date,
-                                 alreadySent: Set<String>,
-                                 timeZone: TimeZone = .current,
-                                 lowThreshold: Double = lowThreshold) -> [QuotaAlert] {
-        candidates(for: snapshot, now: now, timeZone: timeZone, lowThreshold: lowThreshold)
-            .filter { !alreadySent.contains($0.dedupeKey) }
-    }
-
     private static func startOfDay(_ date: Date, timeZone: TimeZone) -> Date {
         var calendar = Calendar(identifier: .gregorian)
         calendar.timeZone = timeZone
         return calendar.startOfDay(for: date)
+    }
+}
+
+// MARK: - 已发送账本
+
+/// 哪些告警已经发过了。
+///
+/// 两件事从前都没做对:
+///
+/// · **账本不分账户** —— A 在某周期收到低额度通知后切到 B,B 的同类告警会被当成
+///   "已经发过"而静默掉。命名空间解决这个。
+/// · **还没送出去就记账** —— 权限被拒、系统拒收,都照样写进"已发过",
+///   于是这一整个周期内再也不会重试。只有系统**确实接受**了才记。
+///
+/// 还要挡住第三种情况:提交是异步的,期间下一次刷新会算出同一条告警。
+/// `delivering` 记下正在途中的,避免重复提交 —— 它只活在内存里,不该持久化。
+public struct AlertLedger: Equatable {
+
+    /// 最多留多少条。周期键随时间单调增长,不裁剪会无限膨胀。
+    public static let capacity = 200
+
+    /// 这本账属于哪个账户
+    public let namespace: String
+
+    /// 已成功提交的键,旧的在前 —— 有序是为了裁剪时丢最旧的那些
+    private var sent: [String]
+
+    /// 正在提交途中的键。**不持久化**:进程没了,途中的提交也就没了。
+    private var delivering: Set<String>
+
+    public init(namespace: String, sent: [String] = []) {
+        self.namespace = namespace
+        self.sent = Array(sent.suffix(Self.capacity))
+        self.delivering = []
+    }
+
+    /// 要落盘的内容
+    public var storedKeys: [String] { sent }
+
+    /// 账本里的完整键。命名空间在这里拼上,`QuotaAlert.dedupeKey` 本身不掺账户。
+    public func key(for alert: QuotaAlert) -> String {
+        "\(namespace)|\(alert.dedupeKey)"
+    }
+
+    /// 还该不该发:既没发过,也不在提交途中
+    public func isPending(_ alert: QuotaAlert) -> Bool {
+        let k = key(for: alert)
+        return !sent.contains(k) && !delivering.contains(k)
+    }
+
+    /// 占住这一条,准备去提交。返回 false 表示不必再提交了。
+    public mutating func beginDelivery(_ alert: QuotaAlert) -> Bool {
+        guard isPending(alert) else { return false }
+        delivering.insert(key(for: alert))
+        return true
+    }
+
+    /// 系统确实收下了 —— 到这一步才算发过
+    public mutating func confirm(_ alert: QuotaAlert) {
+        let k = key(for: alert)
+        delivering.remove(k)
+        guard !sent.contains(k) else { return }
+        sent = Array((sent + [k]).suffix(Self.capacity))
+    }
+
+    /// 被拒、提交失败或放弃 —— **不留记录**,同周期内下次刷新还能重试
+    public mutating func abandon(_ alert: QuotaAlert) {
+        delivering.remove(key(for: alert))
+    }
+
+    /// 用户在设置里重新打开通知时清账,好让当前周期能再提醒一次
+    public mutating func clear() {
+        sent = []
+        delivering = []
     }
 }

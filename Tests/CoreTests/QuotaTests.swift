@@ -258,3 +258,120 @@ final class DailyResetLearnerTests: XCTestCase {
         XCTAssertEqual(obs?.hour, 4)
     }
 }
+
+// MARK: - 学到的日重置规则:按账户隔离与后续更新
+
+private let newYork = TimeZone(identifier: "America/New_York")!
+private let testProvider = "test-provider"
+
+private func observation(hour: Int, uncertainty: TimeInterval = 60) -> DailyResetLearner.Observation {
+    // 通过真实的 observe 造观测,避免测试绕开它自己拼一个不可能出现的值
+    let after = makeDate(2026, 9, 9, hour, 0, 30)
+    let before = after.addingTimeInterval(-uncertainty)
+    return DailyResetLearner.observe(previous: (value: 42, at: before),
+                                     current: (value: 0.1, at: after),
+                                     timeZone: shanghai)!
+}
+
+final class LearnedDailyResetTests: XCTestCase {
+
+    /// 本地小时脱离时区没有意义 —— 时区是结论成立的前提
+    func testRecordOnlyAppliesInTheZoneItWasLearnedIn() {
+        let record = LearnedDailyReset(hour: 4, timeZoneIdentifier: shanghai.identifier,
+                                       uncertainty: 60)
+        XCTAssertTrue(record.applies(in: shanghai))
+        XCTAssertFalse(record.applies(in: newYork))
+    }
+
+    func testFirstObservationIsAdopted() {
+        let updated = DailyResetLearner.reconcile(stored: nil,
+                                                 observation: observation(hour: 4),
+                                                 timeZone: shanghai)
+        XCTAssertEqual(updated?.hour, 4)
+        XCTAssertEqual(updated?.timeZoneIdentifier, shanghai.identifier)
+    }
+
+    /// 同一个小时不必反复写盘 —— 每天重置一次就写一次太吵
+    func testSameHourNeedsNoWrite() {
+        let stored = LearnedDailyReset(hour: 4, timeZoneIdentifier: shanghai.identifier,
+                                       uncertainty: 60)
+        XCTAssertNil(DailyResetLearner.reconcile(stored: stored,
+                                                 observation: observation(hour: 4),
+                                                 timeZone: shanghai))
+    }
+
+    /// 计数器归零是没有歧义的事件:现在发生在 14 点,重置时刻现在就是 14 点。
+    /// 从前学到一次就封存,错了也一直错下去。
+    func testContradictingObservationUpdatesTheRule() {
+        let stored = LearnedDailyReset(hour: 4, timeZoneIdentifier: shanghai.identifier,
+                                       uncertainty: 60)
+        let updated = DailyResetLearner.reconcile(stored: stored,
+                                                 observation: observation(hour: 14),
+                                                 timeZone: shanghai)
+        XCTAssertEqual(updated?.hour, 14)
+    }
+
+    /// 换了时区,旧结论的前提不成立 —— 直接采纳新观测,不拿旧值算倒计时
+    func testTimeZoneChangeDiscardsTheOldRule() {
+        let stored = LearnedDailyReset(hour: 4, timeZoneIdentifier: shanghai.identifier,
+                                       uncertainty: 60)
+        let updated = DailyResetLearner.reconcile(stored: stored,
+                                                 observation: observation(hour: 4),
+                                                 timeZone: newYork)
+        XCTAssertEqual(updated?.timeZoneIdentifier, newYork.identifier)
+        XCTAssertEqual(updated?.hour, 4)
+    }
+
+    /// 没学到规则时,日窗口必须仍然标注为推算
+    func testUnknownRuleKeepsTheInferredMarker() {
+        let inferred = ResetSchedule(timeZone: shanghai, dailyResetHour: 0,
+                                     dailyResetHourIsObserved: false)
+        XCTAssertTrue(inferred.dailyInterval(now: makeDate(2026, 9, 8, 12))!.isInferred)
+
+        let learned = ResetSchedule(timeZone: shanghai, dailyResetHour: 4,
+                                    dailyResetHourIsObserved: true)
+        XCTAssertFalse(learned.dailyInterval(now: makeDate(2026, 9, 8, 12))!.isInferred)
+    }
+}
+
+// MARK: - 账户的两个分区键
+
+final class AccountKeyScopeTests: XCTestCase {
+
+    private let a = AccountIdentity(providerID: testProvider, baseURL: "https://a.example.com", apiId: "id-1")
+
+    /// 历史分区键只看 apiId:中继换网址,用量还是同一份,曲线不该被割成两半
+    func testStorageKeyIgnoresTheEndpoint() {
+        let moved = AccountIdentity(providerID: testProvider, baseURL: "https://b.example.com", apiId: "id-1")
+        XCTAssertEqual(a.storageKey, moved.storageKey)
+    }
+
+    /// 偏好分区键连网址一起算:「日重置在几点」是那个部署的配置,换地址不能假定照旧
+    func testPreferenceKeyDistinguishesTheEndpoint() {
+        let moved = AccountIdentity(providerID: testProvider, baseURL: "https://b.example.com", apiId: "id-1")
+        XCTAssertFalse(a.preferenceKey == moved.preferenceKey)
+    }
+
+    func testPreferenceKeyDistinguishesTheAccount() {
+        let other = AccountIdentity(providerID: testProvider, baseURL: a.baseURL, apiId: "id-2")
+        XCTAssertFalse(a.preferenceKey == other.preferenceKey)
+    }
+
+    func testNeitherKeyLeaksRawCredentials() {
+        for key in [a.storageKey, a.preferenceKey] {
+            XCTAssertFalse(key.contains("id-1"))
+            XCTAssertFalse(key.contains("example.com"))
+        }
+    }
+
+    /// 单段派生必须和老的 derive(apiId:) 完全一致 ——
+    /// 它是历史表的分区键,一变就等于把所有老用户的历史丢掉
+    func testSinglePartDeriveMatchesTheLegacyAccountKey() {
+        XCTAssertEqual(AccountKey.derive(["id-1"]), AccountKey.derive(apiId: "id-1"))
+    }
+
+    /// 用 \n 连接,避免「a+bc 和 ab+c 撞成同一个键」
+    func testMultiPartDeriveHasNoConcatenationAmbiguity() {
+        XCTAssertFalse(AccountKey.derive(["a", "bc"]) == AccountKey.derive(["ab", "c"]))
+    }
+}

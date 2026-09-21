@@ -171,7 +171,7 @@ https://你的中转站域名/admin-next/api-stats?apiId=…
 
 ```bash
 ./build.sh                      # 构建 CodaPace.app
-swift run CoreTests             # 119 个单元测试
+swift run CoreTests             # 321 个单元测试
 swift Scripts/make-icon.swift   # 重新生成 Resources/AppIcon.icns
 ```
 

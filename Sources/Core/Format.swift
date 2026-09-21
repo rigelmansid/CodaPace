@@ -60,6 +60,12 @@ public enum Fmt {
     }()
 
     /// 24998 → "24,998"
+    /// 完整数字 + 千分位。浮层里要给准确值,不能只给 K/M/B 缩写 ——
+    /// 「1.2M」看不出到底是 1,150,000 还是 1,249,999。
+    public static func exact(_ v: Double) -> String {
+        grouping.string(from: NSNumber(value: v.rounded())) ?? String(format: "%.0f", v)
+    }
+
     public static func int(_ v: Int) -> String {
         grouping.string(from: NSNumber(value: v)) ?? "\(v)"
     }
