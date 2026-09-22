@@ -373,13 +373,11 @@ struct PopoverView: View {
     }
 
     private func reloadHistory() {
+        // 缩略图画的就是菜单栏此刻显示的那条额度,两处必须一致 ——
+        // 否则用户点开面板,看到的曲线和菜单栏上的数字对不上。
+        // 没有快照时 gauge 为 nil,曲线留空,token 柱状图照常。
         let gauge = service.menuBarGauge
-        // ⚠︎ EXT-001 阶段 1 的**临时桥接**:历史层还按固定四项分列,
-        // 所以要把桶 ID 转回 QuotaKind。能对上全靠中转站的桶 ID 取值
-        // 等于旧枚举的 rawValue —— 别家供应商的桶在这里会转不出来,
-        // 退回日额度。阶段 2 把历史改成按桶存之后,这一段连同 QuotaKind 一起删。
-        let kind = gauge.flatMap { QuotaKind(rawValue: $0.id) } ?? .daily
-        history.reload(kind: kind,
+        history.reload(bucketID: gauge?.id,
                        rule: gauge?.rule,
                        quotaDays: 1,
                        tokenDays: 30)

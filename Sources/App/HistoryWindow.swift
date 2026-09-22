@@ -42,23 +42,40 @@ struct HistoryView: View {
     @ObservedObject private var service = UsageService.shared
     @ObservedObject private var l10n = Localization.shared
 
-    @State private var kind: QuotaKind = .daily
+    /// 选中的桶 ID。空串表示「当前没有任何可画的额度」—— 没有快照,历史里也没有桶。
+    @State private var bucketID: String = ""
     @State private var days: Int = 7
 
-    /// 当前所选额度对应的桶。
-    ///
-    /// ⚠︎ EXT-001 阶段 1 的**临时桥接**:展示侧已经是任意多个额度桶,而历史层
-    /// 还按固定四项分列,所以这里拿 `kind.rawValue` 当桶 ID 回头去取。
-    /// 能对上全靠中转站的桶 ID 取值等于旧枚举的 rawValue —— 阶段 2 把历史改成
-    /// 按桶存之后,`kind` 本身就换成桶 ID,这个函数连同 `QuotaKind` 一起消失。
-    private var selectedBucket: QuotaBucket? {
-        service.snapshot?.bucket(id: kind.rawValue)
+    /// 额度选择器里的一项
+    private struct BucketOption: Identifiable, Equatable {
+        let id: String
+        let title: String
     }
 
-    /// 当前所选额度的上限。**只用于标题那行的「上限 $x」**,是此刻的配置,
-    /// 不参与绘图 —— 曲线上每个点用的是它自己那条采样当时的上限。
-    private var limit: Double {
-        selectedBucket?.limit ?? 0
+    /// 选择器的内容:**当前快照的桶 ∪ 历史里出现过的桶**。
+    ///
+    /// 并集而不是只取快照,是因为离线时快照是 nil —— 那时候选择器会整个空掉,
+    /// 用户连已经攒下的历史都翻不了。
+    private var bucketOptions: [BucketOption] {
+        // 快照里的排在前面,并保持**适配器声明的顺序** —— 那是供应商自己的重要性排序,
+        // 不该在这里按字母或别的什么重排。
+        var options = (service.snapshot?.gauges ?? []).map {
+            BucketOption(id: $0.id, title: $0.label(l10n.language))
+        }
+
+        // 历史里有、这次快照没报的补在后面。这时只有 ID 可用,就**显示 ID 本身** ——
+        // 替它编一个像样的中文名等于凭空发明供应商没说过的事(不变量 3)。
+        let listed = Set(options.map(\.id))
+        options += model.knownBucketIDs
+            .filter { !listed.contains($0) }
+            .map { BucketOption(id: $0, title: $0) }
+
+        return options
+    }
+
+    /// 当前所选额度对应的桶。离线时为 nil —— 那时只有历史点能画,当前配置无从得知。
+    private var selectedBucket: QuotaBucket? {
+        service.snapshot?.bucket(id: bucketID)
     }
 
     var body: some View {
@@ -76,31 +93,76 @@ struct HistoryView: View {
             }
         }
         .frame(minWidth: 560, minHeight: 420)
-        .onAppear { reload() }
-        .onChange(of: kind) { _ in reload() }
+        .onAppear {
+            // 先把历史里有哪些桶问出来,选择器才有内容可选、reload 才知道该默认选谁
+            model.refreshBuckets()
+            reload()
+        }
+        .onChange(of: bucketID) { _ in reload() }
         .onChange(of: days) { _ in reload() }
         // 窗口开着的时候新采样要自己出现,不该等用户关掉重开。
         // fetchedAt 是每次成功刷新都会变的那个值。
         .onChange(of: service.snapshot?.fetchedAt) { _ in reload() }
         // 换账户 = 换一整个历史库。这一条不能省略成上面那条:
         // 两个账户都离线时快照前后都是 nil,只看快照什么也观察不到。
-        .onChange(of: service.accountGeneration) { _ in reload() }
+        .onChange(of: service.accountGeneration) { _ in
+            model.refreshBuckets()
+            reload()
+        }
+        // 历史里冒出新桶(换了供应商、对方新增了一条额度)时重挑一次选中项。
+        // 值没变就不会触发,不会自己跟自己循环。
+        .onChange(of: model.knownBucketIDs) { _ in reload() }
     }
 
     private func reload() {
-        model.reload(kind: kind,
+        // 选中的桶可能已经不在列表里了(刚打开、换了账户、换了供应商)。
+        // 这时重挑一个 —— 赋值会触发上面的 onChange(of: bucketID),
+        // 由那一次真正去取数,所以这里直接返回,不做重复的查询。
+        let options = bucketOptions
+        if !options.contains(where: { $0.id == bucketID }) {
+            let resolved = defaultBucketID(among: options) ?? ""
+            if resolved != bucketID {
+                bucketID = resolved
+                return
+            }
+        }
+
+        model.reload(bucketID: bucketID.isEmpty ? nil : bucketID,
                      rule: selectedBucket?.rule,
                      quotaDays: days,
                      tokenDays: days)
+    }
+
+    /// 默认选哪条额度。
+    ///
+    /// 从前这里写死 `.daily` —— 那是中转站的额度名长进了通用层(不变量 6),
+    /// 换一家供应商就没有叫这个名字的额度。现在改成一条**按性质**的规则:
+    /// 优先第一条有重置周期、且周期不算高频的额度。
+    ///
+    /// 理由是这个窗口要回答的问题是「一个周期内消耗得多快」:没有周期的额度
+    /// (账户总配额)画出来是一条几个月看不出变化的长线;高频窗口(限流)则
+    /// 一小时抖完一个来回,打开窗口时看到的多半是一段无意义的锯齿。两者都不是
+    /// 用户点进来想看的东西。
+    ///
+    /// 对中转站,这条规则选出的仍然是「今日」,和从前那个写死值完全一致;
+    /// 对 tu-zi 会选出它的日额度。一条都不满足(比如离线,只有历史桶 ID)
+    /// 就退回列表第一条。
+    private func defaultBucketID(among options: [BucketOption]) -> String? {
+        if let preferred = service.snapshot?.gauges.first(where: {
+            $0.window != nil && !$0.hasVolatileWindow
+        }) {
+            return preferred.id
+        }
+        return options.first?.id
     }
 
     // MARK: 控件
 
     private var controls: some View {
         HStack(spacing: 14) {
-            Picker(l10n.t(.historyQuota), selection: $kind) {
-                ForEach(QuotaKind.allCases, id: \.self) {
-                    Text($0.label(l10n.language)).tag($0)
+            Picker(l10n.t(.historyQuota), selection: $bucketID) {
+                ForEach(bucketOptions) {
+                    Text($0.title).tag($0.id)
                 }
             }
             .frame(width: 200)
@@ -125,13 +187,26 @@ struct HistoryView: View {
 
     // MARK: 额度曲线
 
+    /// 标题右边那行小字:额度名,以及**此刻**的上限。
+    ///
+    /// 上限只是说明文字,不参与绘图 —— 曲线上每个点用的是它自己那条采样当时的上限。
+    ///
+    /// 离线时(`selectedBucket` 为 nil)只报名字,不说上限。从前那版这里会显示
+    /// 「没设上限」,可离线时我们并不知道上限是多少,那是把「不知道」说成了「不限」。
+    private var quotaDetail: String {
+        let title = bucketOptions.first { $0.id == bucketID }?.title ?? bucketID
+        guard let bucket = selectedBucket else { return title }
+
+        // 按桶自己的单位排版,而不是一律 Fmt.money2 —— 供应商没声明单位的额度
+        // 不该被打上 `$`(EXT-001)。
+        return title + " · " + (bucket.limit > 0
+            ? l10n.f(.historyLimitFormat, bucket.amount(bucket.limit))
+            : l10n.t(.historyNoLimit))
+    }
+
     private var quotaSection: some View {
         VStack(alignment: .leading, spacing: 8) {
-            sectionTitle(l10n.t(.chartQuotaTrend),
-                         detail: "\(kind.label(l10n.language)) · "
-                         + (limit > 0
-                            ? l10n.f(.historyLimitFormat, Fmt.money2(limit))
-                            : l10n.t(.historyNoLimit)))
+            sectionTitle(l10n.t(.chartQuotaTrend), detail: quotaDetail)
 
             // 画不画曲线,由**点本身**决定,不看当前上限。
             //

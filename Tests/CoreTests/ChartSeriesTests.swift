@@ -7,10 +7,8 @@ private let chartBase = Date(timeIntervalSince1970: 1_788_800_000)
 private func chartSample(minutes: Double, daily: Double = 0, total: Double = 0,
                          limit: Double? = 70) -> Sample {
     Sample(at: chartBase.addingTimeInterval(minutes * 60),
-           totalCost: total, dailyCost: daily,
-           weeklyOpusCost: 0, windowCost: 0,
-           allTokens: 0, requests: 0,
-           limits: limit.map { QuotaLimits(total: $0, daily: $0, weeklyOpus: $0, window: $0) })
+           quotas: ["total": QuotaReading(used: total, limit: limit),
+                    "daily": QuotaReading(used: daily, limit: limit)])
 }
 
 
@@ -27,7 +25,7 @@ final class QuotaSeriesTests: XCTestCase {
     func testRemainingRatioIsDerivedFromLimit() {
         let points = QuotaSeriesBuilder.build(
             samples: [chartSample(minutes: 0, daily: 17.5)],
-            kind: .daily
+            bucketID: "daily"
         )
         XCTAssertEqual(points.count, 1)
         XCTAssertEqual(points[0].remainingRatio, 0.75, accuracy: 1e-9)
@@ -37,7 +35,7 @@ final class QuotaSeriesTests: XCTestCase {
     func testUnlimitedQuotaProducesNoPoints() {
         let points = QuotaSeriesBuilder.build(
             samples: [chartSample(minutes: 0, daily: 17.5, limit: 0)],
-            kind: .daily
+            bucketID: "daily"
         )
         XCTAssertEqual(points.count, 0)
     }
@@ -47,7 +45,7 @@ final class QuotaSeriesTests: XCTestCase {
             samples: [chartSample(minutes: 0, daily: 1),
                       chartSample(minutes: 1, daily: 2),
                       chartSample(minutes: 2, daily: 3)],
-            kind: .daily
+            bucketID: "daily"
         )
         XCTAssertEqual(points.map(\.series), [0, 0, 0])
     }
@@ -58,7 +56,7 @@ final class QuotaSeriesTests: XCTestCase {
             samples: [chartSample(minutes: 0, daily: 1),
                       chartSample(minutes: 1, daily: 2),
                       chartSample(minutes: 120, daily: 5)],
-            kind: .daily
+            bucketID: "daily"
         )
         XCTAssertEqual(points.map(\.series), [0, 0, 1])
     }
@@ -69,7 +67,7 @@ final class QuotaSeriesTests: XCTestCase {
             samples: [chartSample(minutes: 0, daily: 60),
                       chartSample(minutes: 1, daily: 65),
                       chartSample(minutes: 2, daily: 0.5)],
-            kind: .daily
+            bucketID: "daily"
         )
         XCTAssertEqual(points.map(\.series), [0, 0, 1])
         // 新周期的起点应该接近满格
@@ -80,13 +78,35 @@ final class QuotaSeriesTests: XCTestCase {
     func testOverspendClampsToZero() {
         let points = QuotaSeriesBuilder.build(
             samples: [chartSample(minutes: 0, daily: 90)],
-            kind: .daily
+            bucketID: "daily"
         )
         XCTAssertEqual(points[0].remainingRatio, 0, accuracy: 1e-9)
     }
 
+    /// 采样里**根本没有这条额度**时跳过,不能当成「用了 0」画成一个满格的点。
+    ///
+    /// 这是换供应商、或对方临时少报一条额度时的真实形状。画成满格的话,
+    /// 曲线会在那里凭空翘上去,看起来像额度刚重置过。
+    func testASampleWithoutTheBucketIsSkippedRatherThanDrawnAsFull() {
+        let samples = [chartSample(minutes: 0, daily: 35),
+                       Sample(at: chartBase.addingTimeInterval(60), quotas: [:]),
+                       chartSample(minutes: 2, daily: 42)]
+
+        let points = QuotaSeriesBuilder.build(samples: samples, bucketID: "daily")
+        XCTAssertEqual(points.count, 2)
+        XCTAssertEqual(points.first?.remainingRatio ?? -1, 0.5, accuracy: 1e-9)
+        XCTAssertEqual(points.last?.remainingRatio ?? -1, 0.4, accuracy: 1e-9)
+    }
+
+    /// 问的是一条根本没采过的额度时,一条也画不出来 ——
+    /// 不该拿手上这条额度的数字顶上去
+    func testAskingForAnUnknownBucketDrawsNothing() {
+        let samples = [chartSample(minutes: 0, daily: 35), chartSample(minutes: 1, daily: 42)]
+        XCTAssertEqual(QuotaSeriesBuilder.build(samples: samples, bucketID: "monthly").count, 0)
+    }
+
     func testEmptyInputProducesNoPoints() {
-        XCTAssertEqual(QuotaSeriesBuilder.build(samples: [], kind: .daily).count, 0)
+        XCTAssertEqual(QuotaSeriesBuilder.build(samples: [], bucketID: "daily").count, 0)
     }
 
     // MARK: 空档区间
@@ -118,7 +138,7 @@ final class QuotaSeriesTests: XCTestCase {
                        chartSample(minutes: 1, daily: 2),
                        chartSample(minutes: 120, daily: 5)]
 
-        let connectors = QuotaSeriesBuilder.connectors(samples: samples, kind: .daily)
+        let connectors = QuotaSeriesBuilder.connectors(samples: samples, bucketID: "daily")
         XCTAssertEqual(connectors.count, 1)
         XCTAssertEqual(connectors[0].reason, .gap)
         XCTAssertEqual(connectors[0].from.at, chartBase.addingTimeInterval(60))
@@ -134,7 +154,7 @@ final class QuotaSeriesTests: XCTestCase {
                        chartSample(minutes: 2, daily: 0.5)]
 
         let connectors = QuotaSeriesBuilder.connectors(
-            samples: samples, kind: .daily, rule: ruleWithBoundary(at: boundary)
+            samples: samples, bucketID: "daily", rule: ruleWithBoundary(at: boundary)
         )
 
         XCTAssertEqual(connectors.count, 1)
@@ -149,7 +169,7 @@ final class QuotaSeriesTests: XCTestCase {
         let samples = [chartSample(minutes: 0, daily: 60),
                        chartSample(minutes: 1, daily: 0.5)]
         XCTAssertEqual(
-            QuotaSeriesBuilder.connectors(samples: samples, kind: .daily).count, 0)
+            QuotaSeriesBuilder.connectors(samples: samples, bucketID: "daily").count, 0)
     }
 
     /// 推算出的时刻若落在两条采样之外,视为不可信,同样不画
@@ -158,7 +178,7 @@ final class QuotaSeriesTests: XCTestCase {
                        chartSample(minutes: 1, daily: 0.5)]
         // 边界落在两条采样之外 —— 计数器下降仍判定为重置,但起点不可信,不画
         let connectors = QuotaSeriesBuilder.connectors(
-            samples: samples, kind: .daily,
+            samples: samples, bucketID: "daily",
             rule: ruleWithBoundary(at: chartBase.addingTimeInterval(-9999), every: 86400)
         )
         XCTAssertEqual(connectors.count, 0)
@@ -167,7 +187,7 @@ final class QuotaSeriesTests: XCTestCase {
     func testContinuousSamplesNeedNoConnectors() {
         let samples = [chartSample(minutes: 0, daily: 1),
                        chartSample(minutes: 1, daily: 2)]
-        XCTAssertEqual(QuotaSeriesBuilder.connectors(samples: samples, kind: .daily).count, 0)
+        XCTAssertEqual(QuotaSeriesBuilder.connectors(samples: samples, bucketID: "daily").count, 0)
     }
 
     /// 空档连接段的端点必须就是实线的端点,不能错位
@@ -175,8 +195,8 @@ final class QuotaSeriesTests: XCTestCase {
         let samples = [chartSample(minutes: 0, daily: 1),
                        chartSample(minutes: 120, daily: 5)]
 
-        let points = QuotaSeriesBuilder.build(samples: samples, kind: .daily)
-        let connectors = QuotaSeriesBuilder.connectors(samples: samples, kind: .daily)
+        let points = QuotaSeriesBuilder.build(samples: samples, bucketID: "daily")
+        let connectors = QuotaSeriesBuilder.connectors(samples: samples, bucketID: "daily")
 
         XCTAssertEqual(connectors.count, 1)
         XCTAssertEqual(connectors.first?.from, points.first)
@@ -192,7 +212,7 @@ final class QuotaSeriesTests: XCTestCase {
         let boundary = chartBase.addingTimeInterval(150 * 60)
 
         let connectors = QuotaSeriesBuilder.connectors(
-            samples: samples, kind: .daily,
+            samples: samples, bucketID: "daily",
             rule: ruleWithBoundary(at: boundary, every: 86400)
         )
         XCTAssertEqual(connectors.count, 1)
@@ -297,7 +317,7 @@ final class HistoricalLimitTests: XCTestCase {
             chartSample(minutes: 0, daily: 50, limit: 100),   // 当时剩 50%
             chartSample(minutes: 10, daily: 50, limit: 200),  // 上限翻倍后，同样花了 50
         ]
-        let points = QuotaSeriesBuilder.build(samples: samples, kind: .daily)
+        let points = QuotaSeriesBuilder.build(samples: samples, bucketID: "daily")
 
         XCTAssertEqual(points.count, 2)
         XCTAssertEqual((points.first?.remainingRatio ?? -1), 0.5, accuracy: 1e-9)
@@ -310,7 +330,7 @@ final class HistoricalLimitTests: XCTestCase {
             chartSample(minutes: 0, daily: 50, limit: 200),   // 当时剩 75%
             chartSample(minutes: 10, daily: 50, limit: 100),
         ]
-        let points = QuotaSeriesBuilder.build(samples: samples, kind: .daily)
+        let points = QuotaSeriesBuilder.build(samples: samples, bucketID: "daily")
         XCTAssertEqual((points.first?.remainingRatio ?? -1), 0.75, accuracy: 1e-9)
         XCTAssertEqual((points.dropFirst().first?.remainingRatio ?? -1), 0.5, accuracy: 1e-9)
     }
@@ -321,7 +341,7 @@ final class HistoricalLimitTests: XCTestCase {
             chartSample(minutes: 0, daily: 50, limit: 100),
             chartSample(minutes: 10, daily: 60, limit: 0),    // 改成不限额
         ]
-        let points = QuotaSeriesBuilder.build(samples: samples, kind: .daily)
+        let points = QuotaSeriesBuilder.build(samples: samples, bucketID: "daily")
         XCTAssertEqual(points.count, 1)
         XCTAssertEqual((points.first?.remainingRatio ?? -1), 0.5, accuracy: 1e-9)
     }
@@ -333,7 +353,7 @@ final class HistoricalLimitTests: XCTestCase {
             chartSample(minutes: 0, daily: 50, limit: nil),   // 老记录
             chartSample(minutes: 10, daily: 50, limit: 100),
         ]
-        let points = QuotaSeriesBuilder.build(samples: samples, kind: .daily)
+        let points = QuotaSeriesBuilder.build(samples: samples, bucketID: "daily")
         XCTAssertEqual(points.count, 1)
         XCTAssertEqual(points.first?.at, chartBase.addingTimeInterval(600))
     }
@@ -341,7 +361,7 @@ final class HistoricalLimitTests: XCTestCase {
     /// 全是老记录时曲线为空 —— 诚实的空白，好过一条按今天重写的假曲线
     func testAllLegacySamplesProduceNoCurve() {
         let samples = (0..<5).map { chartSample(minutes: Double($0), daily: 50, limit: nil) }
-        XCTAssertEqual(QuotaSeriesBuilder.build(samples: samples, kind: .daily).count, 0)
+        XCTAssertEqual(QuotaSeriesBuilder.build(samples: samples, bucketID: "daily").count, 0)
     }
 
     /// 跳过老记录不能把段号搞乱：后面的点仍应正确分段
@@ -351,7 +371,7 @@ final class HistoricalLimitTests: XCTestCase {
             chartSample(minutes: 5, daily: 20),
             chartSample(minutes: 200, daily: 30),             // 远超空档阈值 → 新段
         ]
-        let points = QuotaSeriesBuilder.build(samples: samples, kind: .daily)
+        let points = QuotaSeriesBuilder.build(samples: samples, bucketID: "daily")
         XCTAssertEqual(points.count, 2)
         XCTAssertFalse(points.first?.series == points.dropFirst().first?.series)
     }
@@ -374,9 +394,9 @@ final class HistoricalLimitTests: XCTestCase {
         let unlimited = (0..<3).map { chartSample(minutes: Double($0), daily: 50, limit: 0) }
         let legacy = (0..<3).map { chartSample(minutes: Double($0), daily: 50, limit: nil) }
 
-        XCTAssertEqual(QuotaSeriesBuilder.build(samples: none, kind: .daily).count, 0)
-        XCTAssertEqual(QuotaSeriesBuilder.build(samples: unlimited, kind: .daily).count, 0)
-        XCTAssertEqual(QuotaSeriesBuilder.build(samples: legacy, kind: .daily).count, 0)
+        XCTAssertEqual(QuotaSeriesBuilder.build(samples: none, bucketID: "daily").count, 0)
+        XCTAssertEqual(QuotaSeriesBuilder.build(samples: unlimited, bucketID: "daily").count, 0)
+        XCTAssertEqual(QuotaSeriesBuilder.build(samples: legacy, bucketID: "daily").count, 0)
 
         // 三种情况的曲线一模一样，差别只在采样条数上
         XCTAssertEqual(none.count, 0)
@@ -400,7 +420,7 @@ final class HistoricalLimitTests: XCTestCase {
         let recorded = (6..<8).map { chartSample(minutes: Double($0), daily: 50, limit: 100) }
         let mixed = legacy + recorded
 
-        let points = QuotaSeriesBuilder.build(samples: mixed, kind: .daily)
+        let points = QuotaSeriesBuilder.build(samples: mixed, bucketID: "daily")
 
         // 曲线画得出来 —— 所以界面不会走「全都算不出百分比」那条分支
         XCTAssertFalse(points.isEmpty)
@@ -426,9 +446,7 @@ private func dailyRule(hour: Int = 0) -> ResetRule {
 }
 
 private func sampleAt(_ date: Date, daily: Double, limit: Double = 70) -> Sample {
-    Sample(at: date, totalCost: 0, dailyCost: daily, weeklyOpusCost: 0, windowCost: 0,
-           allTokens: 0, requests: 0,
-           limits: QuotaLimits(total: limit, daily: limit, weeklyOpus: limit, window: limit))
+    Sample(at: date, quotas: ["daily": QuotaReading(used: daily, limit: limit)])
 }
 
 private func shanghai(_ y: Int, _ mo: Int, _ d: Int, _ h: Int, _ mi: Int = 0) -> Date {
@@ -446,7 +464,7 @@ final class PeriodBasedSplitTests: XCTestCase {
             sampleAt(shanghai(2026, 6, 15, 23, 50), daily: 0),
             sampleAt(shanghai(2026, 6, 16, 0, 10), daily: 0),
         ]
-        let points = QuotaSeriesBuilder.build(samples: samples, kind: .daily, rule: dailyRule())
+        let points = QuotaSeriesBuilder.build(samples: samples, bucketID: "daily", rule: dailyRule())
 
         XCTAssertEqual(points.count, 2)
         XCTAssertFalse(points.first?.series == points.dropFirst().first?.series,
@@ -459,7 +477,7 @@ final class PeriodBasedSplitTests: XCTestCase {
             sampleAt(shanghai(2026, 6, 15, 23, 50), daily: 0),
             sampleAt(shanghai(2026, 6, 16, 0, 10), daily: 0),
         ]
-        let points = QuotaSeriesBuilder.build(samples: samples, kind: .daily)
+        let points = QuotaSeriesBuilder.build(samples: samples, bucketID: "daily")
         XCTAssertEqual(points.first?.series, points.dropFirst().first?.series)
     }
 
@@ -471,7 +489,7 @@ final class PeriodBasedSplitTests: XCTestCase {
             sampleAt(shanghai(2026, 6, 15, 10, 0), daily: 60),
             sampleAt(shanghai(2026, 6, 15, 10, 10), daily: 1),   // 同一天内被清零
         ]
-        let points = QuotaSeriesBuilder.build(samples: samples, kind: .daily, rule: dailyRule())
+        let points = QuotaSeriesBuilder.build(samples: samples, bucketID: "daily", rule: dailyRule())
         XCTAssertFalse(points.first?.series == points.dropFirst().first?.series)
     }
 
@@ -481,7 +499,7 @@ final class PeriodBasedSplitTests: XCTestCase {
             sampleAt(shanghai(2026, 6, 15, 10, 0), daily: 10),
             sampleAt(shanghai(2026, 6, 15, 10, 10), daily: 20),
         ]
-        let points = QuotaSeriesBuilder.build(samples: samples, kind: .daily, rule: dailyRule())
+        let points = QuotaSeriesBuilder.build(samples: samples, bucketID: "daily", rule: dailyRule())
         XCTAssertEqual(points.first?.series, points.dropFirst().first?.series)
     }
 
@@ -494,7 +512,7 @@ final class PeriodBasedSplitTests: XCTestCase {
             sampleAt(shanghai(2026, 6, 15, 14, 30), daily: 30),
             sampleAt(shanghai(2026, 6, 15, 14, 40), daily: 35),   // 用量还在涨
         ]
-        let points = QuotaSeriesBuilder.build(samples: samples, kind: .daily, rule: rule)
+        let points = QuotaSeriesBuilder.build(samples: samples, bucketID: "daily", rule: rule)
         XCTAssertFalse(points.first?.series == points.dropFirst().first?.series)
     }
 
@@ -505,7 +523,7 @@ final class PeriodBasedSplitTests: XCTestCase {
             sampleAt(shanghai(2026, 6, 15, 23, 50), daily: 0),
             sampleAt(shanghai(2026, 6, 16, 0, 10), daily: 0),
         ]
-        let points = QuotaSeriesBuilder.build(samples: samples, kind: .daily, rule: rule)
+        let points = QuotaSeriesBuilder.build(samples: samples, bucketID: "daily", rule: rule)
         XCTAssertEqual(points.first?.series, points.dropFirst().first?.series)
     }
 }
@@ -523,8 +541,8 @@ final class ConnectorAlignmentTests: XCTestCase {
             chartSample(minutes: 2, daily: 20),
             chartSample(minutes: 200, daily: 30),              // 空档 → 连接段
         ]
-        let points = QuotaSeriesBuilder.build(samples: samples, kind: .daily)
-        let connectors = QuotaSeriesBuilder.connectors(samples: samples, kind: .daily)
+        let points = QuotaSeriesBuilder.build(samples: samples, bucketID: "daily")
+        let connectors = QuotaSeriesBuilder.connectors(samples: samples, bucketID: "daily")
 
         XCTAssertEqual(points.count, 2)
         XCTAssertEqual(connectors.count, 1)
@@ -539,7 +557,7 @@ final class ConnectorAlignmentTests: XCTestCase {
             chartSample(minutes: 200, daily: 20, limit: nil),   // 空档的后端画不出
             chartSample(minutes: 201, daily: 30),
         ]
-        let connectors = QuotaSeriesBuilder.connectors(samples: samples, kind: .daily)
+        let connectors = QuotaSeriesBuilder.connectors(samples: samples, bucketID: "daily")
         XCTAssertEqual(connectors.count, 0)
     }
 }
@@ -558,7 +576,7 @@ final class InferredBoundaryTests: XCTestCase {
         let rule = ResetRule(.calendarDaily(timeZone: cycleTZ, hour: 0, minute: 0),
                              provenance: .server)
         let connectors = QuotaSeriesBuilder.connectors(samples: samplesAcrossReset(),
-                                                       kind: .daily, rule: rule)
+                                                       bucketID: "daily", rule: rule)
         XCTAssertEqual(connectors.count, 1)
         XCTAssertFalse(connectors.first?.isBoundaryInferred ?? true)
     }
@@ -569,7 +587,7 @@ final class InferredBoundaryTests: XCTestCase {
         let rule = ResetRule(.calendarDaily(timeZone: cycleTZ, hour: 0, minute: 0),
                              provenance: .inferred)
         let connectors = QuotaSeriesBuilder.connectors(samples: samplesAcrossReset(),
-                                                       kind: .daily, rule: rule)
+                                                       bucketID: "daily", rule: rule)
         XCTAssertEqual(connectors.count, 1)
         XCTAssertTrue(connectors.first?.isBoundaryInferred ?? false)
     }
@@ -579,7 +597,7 @@ final class InferredBoundaryTests: XCTestCase {
         let rule = ResetRule(.calendarDaily(timeZone: cycleTZ, hour: 0, minute: 0),
                              provenance: .observed)
         let connectors = QuotaSeriesBuilder.connectors(samples: samplesAcrossReset(),
-                                                       kind: .daily, rule: rule)
+                                                       bucketID: "daily", rule: rule)
         XCTAssertFalse(connectors.first?.isBoundaryInferred ?? true)
     }
 
@@ -587,7 +605,7 @@ final class InferredBoundaryTests: XCTestCase {
     func testGapConnectorIsNeverMarkedAsInferredBoundary() {
         let samples = [chartSample(minutes: 0, daily: 1),
                        chartSample(minutes: 120, daily: 5)]
-        let connectors = QuotaSeriesBuilder.connectors(samples: samples, kind: .daily)
+        let connectors = QuotaSeriesBuilder.connectors(samples: samples, bucketID: "daily")
         XCTAssertEqual(connectors.first?.reason, .gap)
         XCTAssertFalse(connectors.first?.isBoundaryInferred ?? true)
     }

@@ -41,7 +41,7 @@ enum Config {
     /// 日常最该盯的是今天还能用多少、离重置还有多久,而不是账户总配额。
     ///
     /// 存的是额度桶 ID(EXT-001)。**存量偏好不需要迁移** —— 从前存的是
-    /// `QuotaKind` 的 rawValue,而中转站的桶 ID 取值就等于那些 rawValue,
+    /// `QuotaKind`(已删除)的 rawValue,而中转站的桶 ID 取值就等于那些 rawValue,
     /// 所以老用户选的那一条原样还在。读不到就退回「今日」,不认识的 ID
     /// 会在 `menuBarGauge` 里自然退回自动选择,不必在这里判。
     static var menuBarSource: MenuBarSource {

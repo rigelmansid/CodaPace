@@ -10,85 +10,71 @@ import CryptoKit
 
 // MARK: - 采样
 
-/// 采样**当时**各额度的上限。0 表示当时不限。
+/// 一条额度在某次采样**当时**的读数。
 ///
-/// 必须连同用量一起存下来:上限会变(改套餐、中转站调配额),
+/// 上限必须连同用量一起存下来:上限会变(改套餐、中转站调配额),
 /// 而历史里记的是「当时花了多少、当时的上限是多少」这个事实。
 /// 事后拿**现在**的上限去除历史金额,等于把过去的处境按今天重写一遍 ——
 /// 50/100(剩 50%)在上限调到 200 之后会显示成剩 75%,那一刻的紧张程度凭空消失了。
-public struct QuotaLimits: Equatable {
-    public let total: Double
-    public let daily: Double
-    public let weeklyOpus: Double
-    public let window: Double
+public struct QuotaReading: Equatable {
+    public let used: Double
 
-    public init(total: Double, daily: Double, weeklyOpus: Double, window: Double) {
-        self.total = total
-        self.daily = daily
-        self.weeklyOpus = weeklyOpus
-        self.window = window
-    }
+    /// 采样当时的上限。三态各有其义,压成一个数就是撒谎(不变量 3):
+    ///
+    /// · `nil` —— 当时的上限**未知**。EXT-001 阶段 2 之前的老记录、
+    ///   以及 OPT-008 之前那批根本没记过上限的记录,都落在这里。
+    /// · `0`   —— 当时**不限额**。
+    /// · `> 0` —— 当时的上限就是这个数。
+    ///
+    /// 未知就画不出百分比,那就不画,而不是拿当前上限顶上。
+    public let limit: Double?
 
-    public func value(for kind: QuotaKind) -> Double {
-        switch kind {
-        case .total:      return total
-        case .daily:      return daily
-        case .weeklyOpus: return weeklyOpus
-        case .window:     return window
-        }
+    public init(used: Double, limit: Double? = nil) {
+        self.used = used
+        self.limit = limit
     }
 }
 
-/// 一次成功刷新留下的快照。金额字段来自接口的当前值,tokens/requests 是**累计值**。
+/// 一次成功刷新留下的快照。额度读数来自接口的当前值,tokens/requests 是**累计值**。
 public struct Sample: Equatable {
     public let at: Date
-    public let totalCost: Double
-    public let dailyCost: Double
-    public let weeklyOpusCost: Double
-    public let windowCost: Double
     public let allTokens: Double
     public let requests: Int
 
-    /// 采样当时的各额度上限。
+    /// 桶 ID → 当时的读数。
     ///
-    /// **nil 表示这条老记录根本没记过上限** —— 不是「上限为 0」。
-    /// 这两件事必须分开:前者是我们不知道,后者是当时不限额。
-    /// 不知道就画不出百分比,那就不画,而不是拿当前上限顶上。
-    public let limits: QuotaLimits?
+    /// 从前这里是四个固定字段(total / daily / weeklyOpus / window),那其实是
+    /// 中转站的额度表长进了通用层(不变量 6)—— 换一家供应商就装不下:
+    /// tu-zi 报的是日/周/月,四个字段里一个都对不上,写进去会四条全空。
+    ///
+    /// 换成字典之后多出一件从前做不到的事:**「这次采样里没有这条额度」
+    /// (键不存在)和「有,但用量是 0」终于分得开**。前者不该被当成一次归零,
+    /// 也不该被画进曲线 —— 那正是不变量 3 反复在修的形态。
+    public let quotas: [String: QuotaReading]
 
-    public init(at: Date, totalCost: Double, dailyCost: Double,
-                weeklyOpusCost: Double, windowCost: Double,
-                allTokens: Double, requests: Int,
-                limits: QuotaLimits? = nil) {
+    public init(at: Date, allTokens: Double = 0, requests: Int = 0,
+                quotas: [String: QuotaReading] = [:]) {
         self.at = at
-        self.totalCost = totalCost
-        self.dailyCost = dailyCost
-        self.weeklyOpusCost = weeklyOpusCost
-        self.windowCost = windowCost
         self.allTokens = allTokens
         self.requests = requests
-        self.limits = limits
+        self.quotas = quotas
     }
+
+    /// 某条额度当时的读数。**nil = 这次采样里根本没有这条额度**,不是「用了 0」。
+    public func reading(_ bucketID: String) -> QuotaReading? { quotas[bucketID] }
+
+    /// 某条额度当时的用量。nil 的含义同上。
+    public func used(_ bucketID: String) -> Double? { quotas[bucketID]?.used }
 
     /// 除时间戳外**用量**是否有变化。
     /// 刻意不比上限:上限变了不代表有新消费,不该因此额外落一条采样。
+    ///
+    /// 桶的**增减**算变化 —— 供应商多报或少报了一条额度是件该留下痕迹的事,
+    /// 不该因为「剩下那几条的数字没动」就被当成无事发生。
     public func differs(from other: Sample) -> Bool {
-        totalCost != other.totalCost
-            || dailyCost != other.dailyCost
-            || weeklyOpusCost != other.weeklyOpusCost
-            || windowCost != other.windowCost
-            || allTokens != other.allTokens
-            || requests != other.requests
-    }
-
-    /// 按种类取对应的额度值,便于按额度切分周期
-    public func cost(for kind: QuotaKind) -> Double {
-        switch kind {
-        case .total:      return totalCost
-        case .daily:      return dailyCost
-        case .weeklyOpus: return weeklyOpusCost
-        case .window:     return windowCost
-        }
+        if allTokens != other.allTokens || requests != other.requests { return true }
+        if quotas.count != other.quotas.count { return true }
+        return quotas.contains { id, reading in other.quotas[id]?.used != reading.used }
     }
 }
 
@@ -271,9 +257,13 @@ public enum HistoryGaps {
 public enum QuotaCycles {
     /// 按某条额度切分重置周期:计数器一旦下降,就说明跨过了重置边界。
     /// 每个周期各画一条曲线,不跨重置平滑 —— 否则会出现一条从 0 猛跳回满格的假线。
-    public static func split(_ samples: [Sample], kind: QuotaKind) -> [[Sample]] {
+    public static func split(_ samples: [Sample], bucketID: String) -> [[Sample]] {
         HistoryGaps.split(samples) { previous, current in
-            current.cost(for: kind) < previous.cost(for: kind)
+            // 有一侧没有这条额度,就**没有证据**说明发生过重置 —— 缺数据不是归零。
+            // 供应商临时少报一条额度时,这里若判成下降,曲线上会凭空多出一次重置。
+            guard let before = previous.used(bucketID),
+                  let after = current.used(bucketID) else { return false }
+            return after < before
         }
     }
 }

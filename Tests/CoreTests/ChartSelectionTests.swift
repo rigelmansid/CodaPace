@@ -7,13 +7,11 @@ private let selBase = Date(timeIntervalSince1970: 1_788_800_000)
 private func at(_ minutes: Double) -> Date { selBase.addingTimeInterval(minutes * 60) }
 
 private func selSample(_ minutes: Double, daily: Double = 10, limit: Double? = 70) -> Sample {
-    Sample(at: at(minutes), totalCost: 0, dailyCost: daily, weeklyOpusCost: 0, windowCost: 0,
-           allTokens: 0, requests: 0,
-           limits: limit.map { QuotaLimits(total: $0, daily: $0, weeklyOpus: $0, window: $0) })
+    Sample(at: at(minutes), quotas: ["daily": QuotaReading(used: daily, limit: limit)])
 }
 
 private func plotted(_ samples: [Sample]) -> [PlottedPoint] {
-    QuotaSeriesBuilder.plotted(samples: samples, kind: .daily)
+    QuotaSeriesBuilder.plotted(samples: samples, bucketID: "daily")
 }
 
 // MARK: - 选点
@@ -94,7 +92,7 @@ final class QuotaTooltipTests: XCTestCase {
     /// 剩余金额用**采样当时的上限**算，和曲线同一口径
     func testRemainingAmountUsesTheSampleOwnLimit() {
         let tip = QuotaTooltip(hit: hit(at: at(0), samples: [selSample(0, daily: 30, limit: 100)]),
-                               kind: .daily, rule: nil)
+                               bucketID: "daily", rule: nil)
         XCTAssertEqual(tip.remainingAmount ?? -1, 70, accuracy: 1e-9)
         XCTAssertEqual(tip.remainingRatio, 0.7, accuracy: 1e-9)
     }
@@ -102,13 +100,13 @@ final class QuotaTooltipTests: XCTestCase {
     /// 正好指着某点时不该标成「最近一次」
     func testExactHitIsNotMarkedAsNearest() {
         XCTAssertFalse(QuotaTooltip(hit: hit(at: at(0), samples: [selSample(0)]),
-                                    kind: .daily, rule: nil).isNearest)
+                                    bucketID: "daily", rule: nil).isNearest)
     }
 
     /// 落在空档里必须标出来 —— 这是「不插值」在界面上的体现
     func testGapHitIsMarkedAsNearestWithItsRealTime() {
         let tip = QuotaTooltip(hit: hit(at: at(100), samples: [selSample(0), selSample(300)]),
-                               kind: .daily, rule: nil)
+                               bucketID: "daily", rule: nil)
         XCTAssertTrue(tip.isNearest)
         XCTAssertEqual(tip.at, at(0), "显示的必须是那条采样的真实时间")
     }
@@ -118,7 +116,7 @@ final class QuotaTooltipTests: XCTestCase {
         let rule = ResetRule(.calendarDaily(timeZone: selTZ, hour: 0, minute: 0),
                              provenance: .server)
         let tip = QuotaTooltip(hit: hit(at: at(0), samples: [selSample(0)]),
-                               kind: .daily, rule: rule)
+                               bucketID: "daily", rule: rule)
         XCTAssertNotNil(tip.period)
         XCTAssertEqual(tip.period, rule.period(containing: at(0)))
     }
@@ -127,9 +125,9 @@ final class QuotaTooltipTests: XCTestCase {
     func testNoPeriodWhenTheRuleCannotComputeOne() {
         let rolling = ResetRule(.rollingWindow(seconds: 3600), provenance: .server)
         XCTAssertNil(QuotaTooltip(hit: hit(at: at(0), samples: [selSample(0)]),
-                                  kind: .daily, rule: rolling).period)
+                                  bucketID: "daily", rule: rolling).period)
         XCTAssertNil(QuotaTooltip(hit: hit(at: at(0), samples: [selSample(0)]),
-                                  kind: .daily, rule: nil).period)
+                                  bucketID: "daily", rule: nil).period)
     }
 }
 

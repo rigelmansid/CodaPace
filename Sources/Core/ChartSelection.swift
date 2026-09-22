@@ -73,7 +73,9 @@ public struct QuotaTooltip: Equatable {
     /// 否则用户会以为那就是指针位置处的值 —— 空档里根本没有值。
     public let isNearest: Bool
 
-    public let quota: QuotaKind
+    /// 这条浮层说的是**哪个桶**。存 ID 而不是展示名 ——
+    /// 展示名会随本地化和措辞变,拿它当身份对不回快照里的那条额度。
+    public let bucketID: String
 
     /// 该点所属的重置周期。规则算不出就是 nil(滑动窗口、未知)。
     public let period: TimeWindow?
@@ -83,11 +85,11 @@ public struct QuotaTooltip: Equatable {
     /// 剩余金额。历史点记了当时的上限才算得出。
     public let remainingAmount: Double?
 
-    public init(at: Date, isNearest: Bool, quota: QuotaKind,
+    public init(at: Date, isNearest: Bool, bucketID: String,
                 period: TimeWindow?, remainingRatio: Double, remainingAmount: Double?) {
         self.at = at
         self.isNearest = isNearest
-        self.quota = quota
+        self.bucketID = bucketID
         self.period = period
         self.remainingRatio = remainingRatio
         self.remainingAmount = remainingAmount
@@ -100,18 +102,21 @@ public extension QuotaTooltip {
     ///
     /// 剩余金额用**采样当时的上限**算,不是当前上限 —— 和曲线用的是同一个口径,
     /// 否则浮层里的数字会和它指着的那个点对不上。
-    init(hit: ChartSelection.PointHit, kind: QuotaKind, rule: ResetRule?) {
+    init(hit: ChartSelection.PointHit, bucketID: String, rule: ResetRule?) {
         let sample = hit.plotted.sample
-        let limit = sample.limits?.value(for: kind)
+        let reading = sample.reading(bucketID)
 
-        let remainingAmount: Double? = limit.flatMap { limit in
-            limit > 0 ? max(limit - sample.cost(for: kind), 0) : nil
+        // 上限未知(nil)、当时不限额(0)、这次采样没有这条额度(reading 为 nil)——
+        // 三种都算不出剩余金额,一律不给数字,而不是退回一个 0。
+        let remainingAmount: Double? = reading.flatMap { reading in
+            guard let limit = reading.limit, limit > 0 else { return nil }
+            return max(limit - reading.used, 0)
         }
 
         self.init(at: hit.plotted.point.at,
                   // 距离为 0 才是「正好指着它」
                   isNearest: hit.distance > 0,
-                  quota: kind,
+                  bucketID: bucketID,
                   period: rule?.period(containing: hit.plotted.point.at),
                   remainingRatio: hit.plotted.point.remainingRatio,
                   remainingAmount: remainingAmount)

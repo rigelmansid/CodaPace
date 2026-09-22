@@ -52,32 +52,6 @@ public struct TimeWindow: Equatable {
     }
 }
 
-// MARK: - 额度种类(只剩历史层在用,EXT-001 阶段 2 会清掉)
-
-/// 固定的四种额度。
-///
-/// **它已经不再是展示侧的词汇** —— 展示侧换成了 `QuotaBucket`,因为固定枚举
-/// 装不下别家供应商的额度(tu-zi 报的是日/周/月,压根没有「本周 Opus」这个概念)。
-///
-/// 这里暂时留着,是因为历史存储那一层还按这四项分列(`samples` 表四个固定额度列、
-/// `Sample.cost(for:)`、`QuotaSeriesBuilder`)。阶段 2 把存储改成按桶的高表之后,
-/// 这个类型连同 `QuotaLimits.value(for:)` 一起删掉。**不要在新代码里用它。**
-public enum QuotaKind: String, CaseIterable, Equatable {
-    case total          // 账户总配额,无时间窗口
-    case daily          // 每日
-    case weeklyOpus     // 每周 Opus
-    case window         // 限流窗口
-
-    public func label(_ language: Language) -> String {
-        switch self {
-        case .total:      return L10n.text(.quotaTotal, language)
-        case .daily:      return L10n.text(.quotaDaily, language)
-        case .weeklyOpus: return L10n.text(.quotaWeeklyOpus, language)
-        case .window:     return L10n.text(.quotaWindow, language)
-        }
-    }
-}
-
 // MARK: - 计量单位
 
 /// 这条额度按什么计量。
@@ -203,7 +177,8 @@ public struct QuotaBucket: Equatable {
     /// 供应商范围内稳定的标识。**不拿展示名当主键** —— 展示名会随本地化和措辞变。
     ///
     /// 中转站那四个 id(`total` / `daily` / `weeklyOpus` / `window`)的取值
-    /// **刻意等于**从前 `QuotaKind` 的 rawValue,因为这个字符串同时出现在三处存量数据里:
+    /// **刻意等于**从前 `QuotaKind`(EXT-001 阶段 2 已删除)的 rawValue ——
+    /// 因为这个字符串同时出现在三处存量数据里:
     /// 菜单栏固定选择的偏好、通知去重键、历史表的四个固定额度列。
     /// 取值一改,老用户的菜单栏选择、当前周期的去重记录和历史曲线会同时出问题。**不要改。**
     public let id: String

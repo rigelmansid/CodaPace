@@ -210,9 +210,19 @@ let allSuites: [TestSuite] = [
     ]),
 
     ("SchemaMigrationTests", [
-        ("testLimitsRoundTrip", { SchemaMigrationTests().testLimitsRoundTrip() }),
+        ("testReadingsRoundTrip", { SchemaMigrationTests().testReadingsRoundTrip() }),
+        ("testAnArbitrarySetOfBucketsSurvivesARoundTrip", { SchemaMigrationTests().testAnArbitrarySetOfBucketsSurvivesARoundTrip() }),
         ("testZeroLimitIsDistinctFromUnknown", { SchemaMigrationTests().testZeroLimitIsDistinctFromUnknown() }),
+        ("testOneUnknownLimitDoesNotPoisonTheOthers", { SchemaMigrationTests().testOneUnknownLimitDoesNotPoisonTheOthers() }),
+        ("testRewritingASampleDropsBucketsThatVanished", { SchemaMigrationTests().testRewritingASampleDropsBucketsThatVanished() }),
+        ("testASampleWithNoQuotasIsStillReadBack", { SchemaMigrationTests().testASampleWithNoQuotasIsStillReadBack() }),
+        ("testPruneRemovesTheQuotaRowsToo", { SchemaMigrationTests().testPruneRemovesTheQuotaRowsToo() }),
+        ("testKnownBucketIDsListsEveryBucketEverSeen", { SchemaMigrationTests().testKnownBucketIDsListsEveryBucketEverSeen() }),
+        ("testKnownBucketIDsArePartitionedByAccount", { SchemaMigrationTests().testKnownBucketIDsArePartitionedByAccount() }),
         ("testUpgradingFromV1LeavesOldRowsUnknown", { SchemaMigrationTests().testUpgradingFromV1LeavesOldRowsUnknown() }),
+        ("testUpgradingFromV3ExpandsTheFixedColumnsIntoBuckets", { SchemaMigrationTests().testUpgradingFromV3ExpandsTheFixedColumnsIntoBuckets() }),
+        ("testV3RowsWithoutLimitsStayUnknownAfterMigration", { SchemaMigrationTests().testV3RowsWithoutLimitsStayUnknownAfterMigration() }),
+        ("testTheV4ExpansionDoesNotRunTwice", { SchemaMigrationTests().testTheV4ExpansionDoesNotRunTwice() }),
         ("testReopeningAnAlreadyMigratedStoreIsFine", { SchemaMigrationTests().testReopeningAnAlreadyMigratedStoreIsFine() }),
     ]),
 
@@ -338,6 +348,8 @@ let allSuites: [TestSuite] = [
         ("testChangedValuesAreRecorded", { SamplingPolicyTests().testChangedValuesAreRecorded() }),
         ("testUnchangedWithinAnchorIntervalIsSkipped", { SamplingPolicyTests().testUnchangedWithinAnchorIntervalIsSkipped() }),
         ("testUnchangedPastAnchorIntervalIsRecorded", { SamplingPolicyTests().testUnchangedPastAnchorIntervalIsRecorded() }),
+        ("testABucketDisappearingCountsAsAChange", { SamplingPolicyTests().testABucketDisappearingCountsAsAChange() }),
+        ("testAChangedLimitAloneIsNotAChange", { SamplingPolicyTests().testAChangedLimitAloneIsNotAChange() }),
     ]),
 
     ("SamplingLedgerTests", [
@@ -369,7 +381,9 @@ let allSuites: [TestSuite] = [
     ("QuotaCycleTests", [
         ("testCounterDropStartsNewCycle", { QuotaCycleTests().testCounterDropStartsNewCycle() }),
         ("testMonotonicSamplesStayOneCycle", { QuotaCycleTests().testMonotonicSamplesStayOneCycle() }),
-        ("testSplitIsPerQuotaKind", { QuotaCycleTests().testSplitIsPerQuotaKind() }),
+        ("testSplitIsPerBucket", { QuotaCycleTests().testSplitIsPerBucket() }),
+        ("testAMissingBucketIsNotTreatedAsAReset", { QuotaCycleTests().testAMissingBucketIsNotTreatedAsAReset() }),
+        ("testABucketAppearingIsNotTreatedAsAReset", { QuotaCycleTests().testABucketAppearingIsNotTreatedAsAReset() }),
     ]),
 
     ("KeyTests", [
@@ -449,6 +463,8 @@ let allSuites: [TestSuite] = [
         ("testGapStartsNewSeries", { QuotaSeriesTests().testGapStartsNewSeries() }),
         ("testResetStartsNewSeries", { QuotaSeriesTests().testResetStartsNewSeries() }),
         ("testOverspendClampsToZero", { QuotaSeriesTests().testOverspendClampsToZero() }),
+        ("testASampleWithoutTheBucketIsSkippedRatherThanDrawnAsFull", { QuotaSeriesTests().testASampleWithoutTheBucketIsSkippedRatherThanDrawnAsFull() }),
+        ("testAskingForAnUnknownBucketDrawsNothing", { QuotaSeriesTests().testAskingForAnUnknownBucketDrawsNothing() }),
         ("testEmptyInputProducesNoPoints", { QuotaSeriesTests().testEmptyInputProducesNoPoints() }),
         ("testGapIntervalsAreReported", { QuotaSeriesTests().testGapIntervalsAreReported() }),
         ("testNoGapsWhenContinuous", { QuotaSeriesTests().testNoGapsWhenContinuous() }),

@@ -68,6 +68,29 @@
 
 **验收标准：** 共享、多产品、Codex 专属、Claude Code 专属、模型子额度等样例均显示正确；切换客户端不导致同一共享额度被拆分或重复计数；未知范围不被误标。
 
+**实施记录（阶段 0–2 完成，阶段 3 待做）**
+
+本条分四阶段做，每阶段自己能编译、能跑、能提交。拆分的理由是上一次攒了两周未提交的教训。
+
+- **阶段 0 · 钥匙串可行性**：ad-hoc 签名、无 provisioning profile 的 app 能用文件版钥匙串（见 `KeychainStore.swift` 与项目须知）。这是整条计划唯一能否决后面全部的硬未知，所以先打掉——`.secret` 级凭据没地方存的话，需要 API Key 的供应商一家都接不了。
+- **阶段 1 · 额度桶进显示路径**：`Gauge` + `QuotaKind` → `QuotaBucket`，新增 `QuotaUnit`（含 `.unknown`）与 `BucketTitle`（本地化名 / 供应商原名两态）。菜单栏自动选择的判据从「排除叫 `window` 的那条」换成「周期短于 `QuotaThresholds.volatileWindow`」——**额度名是供应商的事，通用层不该认识任何一条具体额度的名字**（不变量 6）。
+- **阶段 2 · 历史表改高表**：`samples` 的四个固定额度列 → `quota_samples`（`account_key, ts, bucket_id, used, limit_value`），`user_version` v3 → v4 逐行展开。`Sample` 改为 `{at, allTokens, requests, quotas: [String: QuotaReading]}`；阶段 1 那三处 `⚠︎` 桥接全部删除。
+
+**支点：中转站的四个桶 ID 取值刻意等于旧 `QuotaKind` 的 rawValue**，同时买到三样零迁移——菜单栏偏好、`QuotaAlert.dedupeKey`、以及 v3 → v4 的列到行映射。
+
+**比旧结构更精确的两处**（不是顺手改，是高表天然带来的）：
+
+- 一个桶的上限未知不再牵连另外三个。旧版四列任一为 NULL 就把整组判未知，于是一条上限齐全的额度会因为隔壁那条缺上限而整条画不出来。
+- 「这次采样里没有这条额度」（键不存在）和「有，但用量是 0」终于分得开。切周期和画曲线都据此不再把缺数据当成一次归零。
+
+新增测试 16 例（323 → 339 全通过）。**反向验证**共注入 8 处缺陷，每处都由对应用例报红、无一静默通过：迁移回填 NULL 上限、迁移桶 ID 拼错、缺桶当 0、缺桶画满格、清理留下孤儿行、`LEFT JOIN` 写成 `INNER`、重写采样不清旧桶、缺前值即开新周期。
+
+**刻意未做：**
+
+- **`samples` 表的四个额度列不删**，新行写 0 占位且不再被任何代码读取。留作退回 v4 之前版本的余地；SQLite 的 `DROP COLUMN` 支持看版本，删了不好回头。
+- **`HistoryRecorder.learnDailyReset` 仍写死 `"daily"`**，是通用层眼下仅剩的一处供应商痕迹（代码里已标 `⚠︎`）。日重置学习本就是给中转站用的——它不报重置时刻只能靠观测，而 tu-zi 每次都给 `reset_at`。挪到能力声明后面属阶段 3，这一阶段不顺手扩大改动面。
+- **`scope` / `products` / `models` / `provenance` 四个字段尚未落地**，连同上面那张「展示规则」表。它们需要真实的多产品样例才谈得上映射，手上只有中转站和 tu-zi 两家，都不报产品范围——按本条自己的验收标准，**未知范围不被误标**好过猜一个。
+
 ## EXT-002：供应商适配器与能力声明
 
 **现状与需求：** 当前网络层绑定 claude-relay-service 的两个接口。不同供应商可能有完全不同的路径、认证和响应结构。
@@ -326,7 +349,7 @@ UsageProviderAdapter
 **未包含（需要供应商数据或后续条目）**：
 - 「按额度周期查看 token」需要供应商提供周期统计，中转站没有（`capabilities` 里 `usageHistory` 为假），没有数据来源前不做。
 - 「连接：providerID + endpoint + accountID」进存储会改动历史分区键，属 EXT-009 的带版本迁移。
-- `quotaBucketID` / `unit` 等字段随 EXT-001 的额度桶落地，`samples` 表目前仍是四个固定额度列。
+- `quotaBucketID` / `unit` 等字段随 EXT-001 的额度桶落地；`samples` 表的四个固定额度列已在 EXT-001 阶段 2 改成 `quota_samples` 高表（v3 → v4）。
 - 未归属用量目前只入库可查，**界面尚未展示**——`TokenTooltip.unattributedTokens` 已备好字段（EXT-007 Core 部分）。原打算随 EXT-007 的浮层说明一句，而该条的渲染已决定不做（见其条目末尾），所以这句说明至今没有落点。
 
 ## EXT-006：额度趋势图悬停详情

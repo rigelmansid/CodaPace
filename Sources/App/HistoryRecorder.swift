@@ -60,12 +60,24 @@ final class HistoryRecorder {
     private func learnDailyReset(previous: Sample?, current: Sample, account: AccountIdentity) {
         guard let previous else { return }
 
+        // ⚠︎ 「daily」这个桶 ID 写死在通用层,是不变量 6 眼下仅剩的一处例外。
+        //
+        // 日重置学习本身就是为中转站存在的:它不报日额度的重置时刻,只能从
+        // 「计数器归零」这个事件里观测。而 tu-zi 每次都给 reset_at,走
+        // ResetPolicy.serverProvided,根本不需要学 —— 所以这不是一条通用能力,
+        // 是一条该挂在能力声明后面的供应商能力。阶段 3 接适配器时一并搬走,
+        // 这一阶段不顺手扩大改动面。
+        //
+        // 取不到这条桶就直接不学:没有观测就不该改写一个学出来的结论。
+        guard let previousDaily = previous.used("daily"),
+              let currentDaily = current.used("daily") else { return }
+
         // 时区是结论的一部分,所以观测和存储必须用同一个
         let timeZone = TimeZone.current
 
         guard let observation = DailyResetLearner.observe(
-            previous: (value: previous.dailyCost, at: previous.at),
-            current: (value: current.dailyCost, at: current.at),
+            previous: (value: previousDaily, at: previous.at),
+            current: (value: currentDaily, at: current.at),
             timeZone: timeZone
         ) else { return }
 
@@ -126,5 +138,10 @@ final class HistoryRecorder {
 
     func sampleCount() -> Int {
         (try? ensureStore(for: Config.account).sampleCount()) ?? 0
+    }
+
+    /// 历史里出现过哪些额度桶。离线时快照是 nil,额度选择器靠它才不至于整个空掉。
+    func knownBucketIDs() -> [String] {
+        (try? ensureStore(for: Config.account).knownBucketIDs()) ?? []
     }
 }

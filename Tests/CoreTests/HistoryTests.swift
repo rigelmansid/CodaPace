@@ -13,9 +13,11 @@ private func sample(minutes: Double,
                     tokens: Double = 0,
                     requests: Int = 0) -> Sample {
     Sample(at: base.addingTimeInterval(minutes * 60),
-           totalCost: total, dailyCost: daily,
-           weeklyOpusCost: weeklyOpus, windowCost: window,
-           allTokens: tokens, requests: requests)
+           allTokens: tokens, requests: requests,
+           quotas: ["total": QuotaReading(used: total),
+                    "daily": QuotaReading(used: daily),
+                    "weeklyOpus": QuotaReading(used: weeklyOpus),
+                    "window": QuotaReading(used: window)])
 }
 
 private func storeURL() -> URL {
@@ -39,6 +41,26 @@ private func storedMinutes(of store: HistoryStore) -> [Double] {
 private func totalTokens(of store: HistoryStore) -> Double {
     try! store.tokenDays(from: "0000-01-01", to: "9999-12-31")
         .reduce(0) { $0 + $1.tokens }
+}
+
+/// `quota_samples` 里**这个账户**一共有多少行,不经过 JOIN。
+///
+/// 必须绕开 `HistoryStore` 的读取接口:要查的恰恰是「JOIN 不上的孤儿行」,
+/// 而那些行在任何一条正常查询里都是看不见的 —— 拿正常接口去查等于让被测对象
+/// 自证清白。所以这里直接开一个裸连接。
+private func rawQuotaRowCount(at url: URL, accountKey: String = "key-a") -> Int {
+    var raw: OpaquePointer?
+    sqlite3_open(url.path, &raw)
+    defer { sqlite3_close(raw) }
+
+    var stmt: OpaquePointer?
+    sqlite3_prepare_v2(raw, "SELECT COUNT(*) FROM quota_samples WHERE account_key = ?;",
+                       -1, &stmt, nil)
+    defer { sqlite3_finalize(stmt) }
+    sqlite3_bind_text(stmt, 1, accountKey, -1, unsafeBitCast(-1, to: sqlite3_destructor_type.self))
+
+    guard sqlite3_step(stmt) == SQLITE_ROW else { return -1 }
+    return Int(sqlite3_column_int(stmt, 0))
 }
 
 // MARK: - 采样策略
@@ -67,6 +89,27 @@ final class SamplingPolicyTests: XCTestCase {
         let a = sample(minutes: 0, daily: 10)
         let b = sample(minutes: 16, daily: 10)
         XCTAssertTrue(SamplingPolicy.shouldRecord(previous: a, current: b))
+    }
+
+    /// 少报了一条额度要算变化 —— 剩下那几条数字没动,不代表无事发生。
+    /// 不记的话,那一刻「这条额度消失了」在历史里没有任何痕迹。
+    func testABucketDisappearingCountsAsAChange() {
+        let a = Sample(at: base, quotas: ["daily": QuotaReading(used: 10),
+                                          "window": QuotaReading(used: 3)])
+        let b = Sample(at: base.addingTimeInterval(60),
+                       quotas: ["daily": QuotaReading(used: 10)])
+
+        XCTAssertTrue(a.differs(from: b))
+        XCTAssertTrue(b.differs(from: a))
+    }
+
+    /// 只有上限变了不算新消费,不该为此多落一条采样 —— 这条行为不能因为换了结构就丢
+    func testAChangedLimitAloneIsNotAChange() {
+        let a = Sample(at: base, quotas: ["daily": QuotaReading(used: 10, limit: 70)])
+        let b = Sample(at: base.addingTimeInterval(60),
+                       quotas: ["daily": QuotaReading(used: 10, limit: 200)])
+
+        XCTAssertFalse(a.differs(from: b))
     }
 }
 
@@ -255,7 +298,7 @@ final class QuotaCycleTests: XCTestCase {
                        sample(minutes: 2, daily: 0.5),
                        sample(minutes: 3, daily: 3)]
 
-        let cycles = QuotaCycles.split(samples, kind: .daily)
+        let cycles = QuotaCycles.split(samples, bucketID: "daily")
         XCTAssertEqual(cycles.count, 2)
         XCTAssertEqual(cycles[0].count, 2)
         XCTAssertEqual(cycles[1].count, 2)
@@ -265,16 +308,36 @@ final class QuotaCycleTests: XCTestCase {
         let samples = [sample(minutes: 0, daily: 1),
                        sample(minutes: 1, daily: 2),
                        sample(minutes: 2, daily: 3)]
-        XCTAssertEqual(QuotaCycles.split(samples, kind: .daily).count, 1)
+        XCTAssertEqual(QuotaCycles.split(samples, bucketID: "daily").count, 1)
     }
 
     /// 切分是按额度种类来的:今日归零不代表总额度也归零
-    func testSplitIsPerQuotaKind() {
+    func testSplitIsPerBucket() {
         let samples = [sample(minutes: 0, total: 100, daily: 10),
                        sample(minutes: 1, total: 110, daily: 0)]
 
-        XCTAssertEqual(QuotaCycles.split(samples, kind: .daily).count, 2)
-        XCTAssertEqual(QuotaCycles.split(samples, kind: .total).count, 1)
+        XCTAssertEqual(QuotaCycles.split(samples, bucketID: "daily").count, 2)
+        XCTAssertEqual(QuotaCycles.split(samples, bucketID: "total").count, 1)
+    }
+
+    /// 后一条采样里**没有**这条额度 —— 那是缺数据,不是归零,不能切段。
+    ///
+    /// 换供应商、对方临时少报一条额度都会走到这里。把「没有」当成 0,
+    /// 曲线上会凭空多出一次并不存在的重置(不变量 3)。
+    func testAMissingBucketIsNotTreatedAsAReset() {
+        let samples = [Sample(at: base, quotas: ["daily": QuotaReading(used: 10)]),
+                       Sample(at: base.addingTimeInterval(60), quotas: [:])]
+
+        XCTAssertEqual(QuotaCycles.split(samples, bucketID: "daily").count, 1)
+    }
+
+    /// 反过来也一样:前一条没有,后一条才出现,同样没有下降的证据
+    func testABucketAppearingIsNotTreatedAsAReset() {
+        let samples = [Sample(at: base, quotas: [:]),
+                       Sample(at: base.addingTimeInterval(60),
+                              quotas: ["daily": QuotaReading(used: 10)])]
+
+        XCTAssertEqual(QuotaCycles.split(samples, bucketID: "daily").count, 1)
     }
 }
 
@@ -333,7 +396,7 @@ final class HistoryStoreTests: XCTestCase {
         try! store.insert(s)
 
         let read = try! store.lastSample()
-        XCTAssertEqual(read?.totalCost ?? -1, 2432.69, accuracy: 1e-6)
+        XCTAssertEqual(read?.used("total") ?? -1, 2432.69, accuracy: 1e-6)
         XCTAssertEqual(read?.requests, 25_024)
         XCTAssertEqual(read?.allTokens ?? -1, 2_152_951_760, accuracy: 1)
     }
@@ -344,7 +407,7 @@ final class HistoryStoreTests: XCTestCase {
         try! store.insert(sample(minutes: 10, daily: 2))
         try! store.insert(sample(minutes: 5, daily: 3))
 
-        XCTAssertEqual(try! store.lastSample()?.dailyCost ?? -1, 2, accuracy: 1e-9)
+        XCTAssertEqual(try! store.lastSample()?.used("daily") ?? -1, 2, accuracy: 1e-9)
     }
 
     func testEmptyStoreHasNoLastSample() {
@@ -358,8 +421,8 @@ final class HistoryStoreTests: XCTestCase {
         let got = try! store.samples(from: base.addingTimeInterval(60),
                                      to: base.addingTimeInterval(3 * 60))
         XCTAssertEqual(got.count, 3)
-        XCTAssertEqual(got.first?.dailyCost ?? -1, 1, accuracy: 1e-9)
-        XCTAssertEqual(got.last?.dailyCost ?? -1, 3, accuracy: 1e-9)
+        XCTAssertEqual(got.first?.used("daily") ?? -1, 1, accuracy: 1e-9)
+        XCTAssertEqual(got.last?.used("daily") ?? -1, 3, accuracy: 1e-9)
     }
 
     /// 同一天的增量要累加,不是覆盖
@@ -397,7 +460,7 @@ final class HistoryStoreTests: XCTestCase {
 
         try! store.pruneSamples(before: base.addingTimeInterval(50 * 60))
         XCTAssertEqual(try! store.sampleCount(), 1)
-        XCTAssertEqual(try! store.lastSample()?.dailyCost ?? -1, 2, accuracy: 1e-9)
+        XCTAssertEqual(try! store.lastSample()?.used("daily") ?? -1, 2, accuracy: 1e-9)
     }
 
     // MARK: 事务
@@ -539,7 +602,7 @@ final class IncompleteResponseTests: XCTestCase {
         let stored = try! store.samples(from: base.addingTimeInterval(-3600),
                                         to: base.addingTimeInterval(3600))
         XCTAssertEqual(stored.count, 2)
-        XCTAssertEqual(stored.map { $0.dailyCost }, [42, 45])
+        XCTAssertEqual(stored.map { $0.used("daily") }, [42, 45])
     }
 
     /// 危害二:恢复正常后不能凭空多出一大笔用量。
@@ -570,12 +633,12 @@ final class IncompleteResponseTests: XCTestCase {
         // 恢复正常这次,拿到的上一条仍是第一份的 42,而不是被污染成 0
         let resumed = try! writer.record(complete(minutes: 10, daily: 45, tokens: 1_200, requests: 12),
                                          to: store)
-        XCTAssertEqual(resumed?.previous?.dailyCost, 42)
+        XCTAssertEqual(resumed?.previous?.used("daily"), 42)
 
         // 42 → 45 是上升,学不出重置。若中间那次入了库,42 → 0 会被认成一次重置。
         XCTAssertNil(DailyResetLearner.observe(
-            previous: (value: resumed!.previous!.dailyCost, at: resumed!.previous!.at),
-            current: (value: resumed!.sample.dailyCost, at: resumed!.sample.at),
+            previous: (value: resumed!.previous!.used("daily")!, at: resumed!.previous!.at),
+            current: (value: resumed!.sample.used("daily")!, at: resumed!.sample.at),
             timeZone: .current))
 
         // 反证:那次假下降确实会被学成重置 —— 所以跳过它是必须的,不是保险起见
@@ -669,30 +732,122 @@ final class HistoryWriterTests: XCTestCase {
 
 final class SchemaMigrationTests: XCTestCase {
 
-    /// 上限要原样存得回来
-    func testLimitsRoundTrip() {
+    /// 用量和上限要原样存得回来,**桶的条数也要对得上**
+    func testReadingsRoundTrip() {
         let store = tempStore()
-        let limits = QuotaLimits(total: 3000, daily: 70, weeklyOpus: 500, window: 20)
-        try! store.insert(Sample(at: base, totalCost: 1, dailyCost: 2,
-                                 weeklyOpusCost: 3, windowCost: 4,
-                                 allTokens: 5, requests: 6, limits: limits))
+        let quotas = ["total": QuotaReading(used: 1, limit: 3000),
+                      "daily": QuotaReading(used: 2, limit: 70),
+                      "weeklyOpus": QuotaReading(used: 3, limit: 500),
+                      "window": QuotaReading(used: 4, limit: 20)]
+        try! store.insert(Sample(at: base, allTokens: 5, requests: 6, quotas: quotas))
 
-        XCTAssertEqual(try! store.lastSample()?.limits, limits)
+        XCTAssertEqual(try! store.lastSample()?.quotas, quotas)
+    }
+
+    /// 供应商的额度条数不是四条也照样存得下 —— 高表存在的理由就是这个。
+    /// 用 tu-zi 的形状(日/周/月)当例子,它一条也对不上中转站的四个旧列名。
+    func testAnArbitrarySetOfBucketsSurvivesARoundTrip() {
+        let store = tempStore()
+        let quotas = ["daily": QuotaReading(used: 29.2, limit: 100),
+                      "weekly": QuotaReading(used: 210, limit: 700),
+                      "monthly": QuotaReading(used: 210, limit: 3000)]
+        try! store.insert(Sample(at: base, quotas: quotas))
+
+        XCTAssertEqual(try! store.lastSample()?.quotas, quotas)
     }
 
     /// 「当时不限额」(0) 必须能和「不知道」(nil) 分开存、分开读
     func testZeroLimitIsDistinctFromUnknown() {
         let store = tempStore()
-        let zero = QuotaLimits(total: 0, daily: 0, weeklyOpus: 0, window: 0)
-        try! store.insert(Sample(at: base, totalCost: 0, dailyCost: 0,
-                                 weeklyOpusCost: 0, windowCost: 0,
-                                 allTokens: 0, requests: 0, limits: zero))
-        XCTAssertEqual(try! store.lastSample()?.limits, zero)
+        try! store.insert(Sample(at: base, quotas: ["daily": QuotaReading(used: 0, limit: 0)]))
+        XCTAssertEqual(try! store.lastSample()?.reading("daily")?.limit, 0)
 
-        try! store.insert(Sample(at: base.addingTimeInterval(60), totalCost: 0, dailyCost: 0,
-                                 weeklyOpusCost: 0, windowCost: 0,
-                                 allTokens: 0, requests: 0, limits: nil))
-        XCTAssertNil(try! store.lastSample()?.limits)
+        try! store.insert(Sample(at: base.addingTimeInterval(60),
+                                 quotas: ["daily": QuotaReading(used: 0, limit: nil)]))
+        XCTAssertNil(try! store.lastSample()?.reading("daily")?.limit)
+        // 读数本身还在 —— 上限未知不等于这条额度不存在
+        XCTAssertNotNil(try! store.lastSample()?.reading("daily"))
+    }
+
+    /// **一个桶的上限未知,不该牵连另外几个。**
+    ///
+    /// 这是高表比旧的四个固定列更精确的地方:旧版四列任一为 NULL 就把整组判未知,
+    /// 于是一条上限齐全的额度会因为隔壁那条缺上限而整条画不出来。
+    func testOneUnknownLimitDoesNotPoisonTheOthers() {
+        let store = tempStore()
+        try! store.insert(Sample(at: base, quotas: [
+            "daily": QuotaReading(used: 10, limit: 70),
+            "window": QuotaReading(used: 3, limit: nil),
+        ]))
+
+        let read = try! store.lastSample()
+        XCTAssertEqual(read?.reading("daily")?.limit, 70)
+        XCTAssertNil(read?.reading("window")?.limit)
+    }
+
+    /// 重写同一时刻的采样时,上一次多出来的那条额度必须消失。
+    /// 留着的话它会被当成「这次也报了这条额度」,曲线上凭空多出一个点。
+    func testRewritingASampleDropsBucketsThatVanished() {
+        let store = tempStore()
+        try! store.insert(Sample(at: base, quotas: ["daily": QuotaReading(used: 1),
+                                                    "window": QuotaReading(used: 2)]))
+        try! store.insert(Sample(at: base, quotas: ["daily": QuotaReading(used: 9)]))
+
+        XCTAssertEqual(try! store.lastSample()?.quotas.count, 1)
+        XCTAssertNil(try! store.lastSample()?.reading("window"))
+    }
+
+    /// 一条额度都没有的采样也要读得回来。
+    ///
+    /// 它仍是 token 增量的有效基线 —— 取数那条 JOIN 要是写成 INNER,
+    /// 这一行会被整条吞掉,重启后基线倒退,那段用量会被重复累加一遍。
+    func testASampleWithNoQuotasIsStillReadBack() {
+        let store = tempStore()
+        try! store.insert(Sample(at: base, allTokens: 1_000, requests: 7))
+
+        let read = try! store.lastSample()
+        XCTAssertEqual(read?.allTokens ?? -1, 1_000, accuracy: 1e-9)
+        XCTAssertEqual(read?.requests, 7)
+        XCTAssertEqual(read?.quotas.count, 0)
+    }
+
+    /// 清理要把两张表一起清,不能在 quota_samples 里留下 JOIN 不上的孤儿行
+    func testPruneRemovesTheQuotaRowsToo() {
+        let url = storeURL()
+        let store = try! HistoryStore(path: url, accountKey: "key-a")
+        try! store.insert(Sample(at: base, quotas: ["daily": QuotaReading(used: 1, limit: 70)]))
+        try! store.insert(Sample(at: base.addingTimeInterval(6000),
+                                 quotas: ["daily": QuotaReading(used: 2, limit: 70)]))
+
+        try! store.pruneSamples(before: base.addingTimeInterval(3000))
+
+        XCTAssertEqual(try! store.sampleCount(), 1)
+        // 孤儿行只有在这里才现形:采样行没了,任何一条正常查询都碰不到它,
+        // 于是它既不显示也再删不掉,只是一直占着地方。
+        XCTAssertEqual(rawQuotaRowCount(at: url), 1)
+    }
+
+    /// 历史里出现过哪些桶 —— 额度选择器离线时全靠它
+    func testKnownBucketIDsListsEveryBucketEverSeen() {
+        let store = tempStore()
+        try! store.insert(Sample(at: base, quotas: ["daily": QuotaReading(used: 1)]))
+        try! store.insert(Sample(at: base.addingTimeInterval(60),
+                                 quotas: ["daily": QuotaReading(used: 2),
+                                          "monthly": QuotaReading(used: 3)]))
+
+        XCTAssertEqual(try! store.knownBucketIDs(), ["daily", "monthly"])
+    }
+
+    /// 桶也要按账户分区,不能让另一个账户的额度名跑进选择器
+    func testKnownBucketIDsArePartitionedByAccount() {
+        let url = storeURL()
+        let a = try! HistoryStore(path: url, accountKey: "key-a")
+        let b = try! HistoryStore(path: url, accountKey: "key-b")
+
+        try! a.insert(Sample(at: base, quotas: ["weeklyOpus": QuotaReading(used: 1)]))
+
+        XCTAssertEqual(try! a.knownBucketIDs(), ["weeklyOpus"])
+        XCTAssertEqual(try! b.knownBucketIDs(), [])
     }
 
     /// 升级路径：v1 的库(没有上限列)要能打开，老行读出来是 nil 而**不是 0**。
@@ -717,19 +872,108 @@ final class SchemaMigrationTests: XCTestCase {
             """, nil, nil, nil)
         sqlite3_close(raw)
 
-        // 打开它 —— migrate 应补上四列
+        // 打开它 —— migrate 应补上四列,再把它们展开成四条桶行
         let store = try! HistoryStore(path: url, accountKey: "key-a")
         let old = try! store.lastSample()
 
-        XCTAssertEqual(old?.dailyCost ?? -1, 22, accuracy: 1e-9)   // 老数据还在
-        XCTAssertNil(old?.limits, "老行的上限未知，不该被回填成 0 或当前上限")
+        XCTAssertEqual(old?.used("daily") ?? -1, 22, accuracy: 1e-9)   // 老数据还在
+        XCTAssertNil(old?.reading("daily")?.limit,
+                     "老行的上限未知，不该被回填成 0 或当前上限")
 
         // 新写入的行照常带上限
-        let limits = QuotaLimits(total: 1, daily: 2, weeklyOpus: 3, window: 4)
-        try! store.insert(Sample(at: base.addingTimeInterval(60), totalCost: 0, dailyCost: 0,
-                                 weeklyOpusCost: 0, windowCost: 0,
-                                 allTokens: 0, requests: 0, limits: limits))
-        XCTAssertEqual(try! store.lastSample()?.limits, limits)
+        try! store.insert(Sample(at: base.addingTimeInterval(60),
+                                 quotas: ["daily": QuotaReading(used: 0, limit: 2)]))
+        XCTAssertEqual(try! store.lastSample()?.reading("daily")?.limit, 2)
+    }
+
+    /// 升级路径 v3 → v4:四个固定额度列要原地摊成四条桶行,**一条历史都不能丢**。
+    ///
+    /// 这是阶段 1 里中转站刻意让桶 ID 取值等于旧列名语义的兑现点 ——
+    /// 桶 ID 一旦改过,这条就会当场变红。
+    func testUpgradingFromV3ExpandsTheFixedColumnsIntoBuckets() {
+        let url = storeURL()
+        try! FileManager.default.createDirectory(at: url.deletingLastPathComponent(),
+                                                 withIntermediateDirectories: true)
+
+        // 造一个 v3 的库:八列 + 四个上限列,user_version = 3
+        var raw: OpaquePointer?
+        sqlite3_open(url.path, &raw)
+        sqlite3_exec(raw, """
+            PRAGMA user_version = 3;
+            CREATE TABLE samples (
+                account_key TEXT NOT NULL, ts REAL NOT NULL,
+                total_cost REAL NOT NULL, daily_cost REAL NOT NULL,
+                weekly_opus_cost REAL NOT NULL, window_cost REAL NOT NULL,
+                all_tokens REAL NOT NULL, requests INTEGER NOT NULL,
+                total_limit REAL, daily_limit REAL,
+                weekly_opus_limit REAL, window_limit REAL,
+                PRIMARY KEY (account_key, ts));
+            INSERT INTO samples VALUES ('key-a', \(base.timeIntervalSince1970),
+                                        2432.69, 27.04, 34.47, 3.74, 55, 66,
+                                        3000, 70, 500, 20);
+            """, nil, nil, nil)
+        sqlite3_close(raw)
+
+        let store = try! HistoryStore(path: url, accountKey: "key-a")
+        let migrated = try! store.lastSample()
+
+        XCTAssertEqual(migrated?.quotas, [
+            "total": QuotaReading(used: 2432.69, limit: 3000),
+            "daily": QuotaReading(used: 27.04, limit: 70),
+            "weeklyOpus": QuotaReading(used: 34.47, limit: 500),
+            "window": QuotaReading(used: 3.74, limit: 20),
+        ])
+        // token 那条链路和额度无关,不该被这次迁移碰到
+        XCTAssertEqual(migrated?.allTokens ?? -1, 55, accuracy: 1e-9)
+        XCTAssertEqual(migrated?.requests, 66)
+    }
+
+    /// v3 老行里上限为 NULL 的,迁移后仍是 NULL。
+    /// 顺手回填一个「看起来合理」的值,正是 OPT-008 要修的那种谎。
+    func testV3RowsWithoutLimitsStayUnknownAfterMigration() {
+        let url = storeURL()
+        try! FileManager.default.createDirectory(at: url.deletingLastPathComponent(),
+                                                 withIntermediateDirectories: true)
+
+        var raw: OpaquePointer?
+        sqlite3_open(url.path, &raw)
+        sqlite3_exec(raw, """
+            PRAGMA user_version = 3;
+            CREATE TABLE samples (
+                account_key TEXT NOT NULL, ts REAL NOT NULL,
+                total_cost REAL NOT NULL, daily_cost REAL NOT NULL,
+                weekly_opus_cost REAL NOT NULL, window_cost REAL NOT NULL,
+                all_tokens REAL NOT NULL, requests INTEGER NOT NULL,
+                total_limit REAL, daily_limit REAL,
+                weekly_opus_limit REAL, window_limit REAL,
+                PRIMARY KEY (account_key, ts));
+            INSERT INTO samples VALUES ('key-a', \(base.timeIntervalSince1970),
+                                        1, 22, 3, 4, 5, 6,
+                                        NULL, NULL, NULL, NULL);
+            """, nil, nil, nil)
+        sqlite3_close(raw)
+
+        let store = try! HistoryStore(path: url, accountKey: "key-a")
+        let migrated = try! store.lastSample()
+
+        XCTAssertEqual(migrated?.used("daily") ?? -1, 22, accuracy: 1e-9)  // 用量还在
+        XCTAssertNil(migrated?.reading("daily")?.limit)
+        XCTAssertEqual(migrated?.quotas.count, 4)                          // 四条都在,只是上限未知
+    }
+
+    /// 迁移只跑一次:重开之后不能把已经摊好的桶再摊一遍,也不能覆盖新写的值。
+    ///
+    /// 迁移那几条 SQL 用的是 `INSERT OR IGNORE`,靠 user_version 门控。
+    /// 门控要是失效,第二次打开会拿老列的值(0)盖掉 v4 之后写进去的真实读数。
+    func testTheV4ExpansionDoesNotRunTwice() {
+        let url = storeURL()
+        let first = try! HistoryStore(path: url, accountKey: "key-a")
+        try! first.insert(Sample(at: base, quotas: ["daily": QuotaReading(used: 42, limit: 70)]))
+
+        let reopened = try! HistoryStore(path: url, accountKey: "key-a")
+        XCTAssertEqual(try! reopened.lastSample()?.used("daily") ?? -1, 42, accuracy: 1e-9)
+        XCTAssertEqual(try! reopened.lastSample()?.quotas.count, 1,
+                       "重跑展开的话,这里会冒出 total/weeklyOpus/window 三条 0")
     }
 
     /// 迁移要幂等：重复打开同一个库不该出错
@@ -800,9 +1044,8 @@ final class TokenAttributionTests: XCTestCase {
 final class UnattributedStorageTests: XCTestCase {
 
     private func snapshotSample(_ date: Date, tokens: Double) -> Sample {
-        Sample(at: date, totalCost: 0, dailyCost: 0, weeklyOpusCost: 0, windowCost: 0,
-               allTokens: tokens, requests: 0,
-               limits: QuotaLimits(total: 0, daily: 70, weeklyOpus: 0, window: 0))
+        Sample(at: date, allTokens: tokens,
+               quotas: ["daily": QuotaReading(used: 0, limit: 70)])
     }
 
     /// 同一天内的增量照常进当天的桶

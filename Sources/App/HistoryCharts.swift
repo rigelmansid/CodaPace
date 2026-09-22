@@ -67,15 +67,21 @@ final class HistoryModel: ObservableObject {
     /// 已确立的口径 —— 两种可能都摆出来。
     @Published private(set) var quotaSamplesWithoutPercentage = 0
 
+    /// 这个账户的历史里出现过哪些额度桶。额度选择器的内容由它和当前快照合并而来 ——
+    /// 离线时快照是 nil,没有它选择器会整个空掉,用户连攒下的历史都翻不了。
+    @Published private(set) var knownBucketIDs: [String] = []
+
     /// - Parameters:
-    ///   - kind: 要画哪条额度
+    ///   - bucketID: 要画哪条额度。**nil 表示当前没有可画的额度**(没有快照、
+    ///     历史里也没有任何桶)—— 此时曲线为空,但 token 柱状图和采样计数照常给,
+    ///     它们和额度是两条独立的链路。
     ///   - rule: 该额度的重置规则。用来把历史上每次重置的确切时刻按其自身算法推出来。
     ///   - quotaDays: 额度曲线往前取多少天
     ///   - tokenDays: token 柱状图往前取多少天(通常比曲线长得多)
     ///
     /// 这里**刻意不收当前上限**:每个历史点用的是它自己那条采样当时的上限
     /// (见 `QuotaSeriesBuilder.build`),当前上限在绘图里没有任何位置。
-    func reload(kind: QuotaKind, rule: ResetRule?,
+    func reload(bucketID: String?, rule: ResetRule?,
                 quotaDays: Int, tokenDays: Int) {
         let to = Date()
         let recorder = HistoryRecorder.shared
@@ -86,15 +92,17 @@ final class HistoryModel: ObservableObject {
 
         // 重置边界和「是否跨过重置」都由这条规则算,不会两处不一致。
         // 规则算不出周期(滑动窗口、未知)时,退回「计数器下降」这条补充证据。
-        quotaPoints = QuotaSeriesBuilder.build(samples: samples, kind: kind, rule: rule)
+        quotaPoints = bucketID.map {
+            QuotaSeriesBuilder.build(samples: samples, bucketID: $0, rule: rule)
+        } ?? []
 
         // 差额即被跳过的条数。算式在这里落成一个有名字的信号,而不是留给视图现减 ——
         // 光看 `总数 − 点数` 看不出它在回答什么问题,下一个人很容易当冗余删掉。
         quotaSamplesWithoutPercentage = max(0, samples.count - quotaPoints.count)
 
-        quotaConnectors = QuotaSeriesBuilder.connectors(samples: samples,
-                                                        kind: kind,
-                                                        rule: rule)
+        quotaConnectors = bucketID.map {
+            QuotaSeriesBuilder.connectors(samples: samples, bucketID: $0, rule: rule)
+        } ?? []
         gaps = QuotaSeriesBuilder.gaps(samples: samples).map { GapSpan(from: $0.from, to: $0.to) }
 
         tokenBars = TokenSeriesBuilder.build(
@@ -102,6 +110,15 @@ final class HistoryModel: ObservableObject {
                                      to: to)
         )
         sampleCount = recorder.sampleCount()
+        knownBucketIDs = recorder.knownBucketIDs()
+    }
+
+    /// 只刷新「历史里有哪些桶」。
+    ///
+    /// 单独留一个入口,是因为**选择器得先有内容,才谈得上选中谁**:
+    /// 窗口刚打开时还没选中任何桶,`reload` 无从知道该默认选哪条。
+    func refreshBuckets() {
+        knownBucketIDs = HistoryRecorder.shared.knownBucketIDs()
     }
 }
 

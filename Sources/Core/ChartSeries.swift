@@ -72,14 +72,15 @@ public enum QuotaSeriesBuilder {
     /// 统一除以当前上限会把过去按今天重写:50/100(剩 50%)在上限调到 200 之后
     /// 会显示成剩 75%,那一刻的紧张程度凭空消失。上限调低则反过来,凭空制造紧张。
     ///
-    /// 两种点画不出百分比,一律跳过而不是编一个:
+    /// 三种点画不出百分比,一律跳过而不是编一个:
+    /// · 这次采样里**根本没有这条额度**(供应商没报,或那时还没接这家)
     /// · 上限**未知**(升级前的老记录没记过)
     /// · 当时**不限额**(上限为 0)—— 没有上限就没有「剩余百分比」可言
     public static func build(samples: [Sample],
-                             kind: QuotaKind,
+                             bucketID: String,
                              rule: ResetRule? = nil,
                              gapThreshold: TimeInterval = HistoryGaps.threshold) -> [QuotaPoint] {
-        plotted(samples: samples, kind: kind, rule: rule,
+        plotted(samples: samples, bucketID: bucketID, rule: rule,
                 gapThreshold: gapThreshold).map(\.point)
     }
 
@@ -89,23 +90,23 @@ public enum QuotaSeriesBuilder {
     /// 而点的序号和采样的序号**对不上** —— 有些采样画不出点(上限未知或当时不限额)。
     /// 所以配好对一起给出去,调用方不必也不该自己拿下标去凑。
     public static func plotted(samples: [Sample],
-                               kind: QuotaKind,
+                               bucketID: String,
                                rule: ResetRule? = nil,
                                gapThreshold: TimeInterval = HistoryGaps.threshold)
     -> [PlottedPoint] {
-        drawablePoints(samples: samples, kind: kind, rule: rule, gapThreshold: gapThreshold)
+        drawablePoints(samples: samples, bucketID: bucketID, rule: rule, gapThreshold: gapThreshold)
             .map { PlottedPoint(point: $0.point, sample: samples[$0.index]) }
     }
 
     /// 断点是按采样序号记的,所以内部要留着这个序号
     private static func drawablePoints(samples: [Sample],
-                                       kind: QuotaKind,
+                                       bucketID: String,
                                        rule: ResetRule?,
                                        gapThreshold: TimeInterval)
     -> [(index: Int, point: QuotaPoint)] {
         guard !samples.isEmpty else { return [] }
 
-        let breaks = breakReasons(samples: samples, kind: kind,
+        let breaks = breakReasons(samples: samples, bucketID: bucketID,
                                   gapThreshold: gapThreshold, rule: rule)
         var series = 0
 
@@ -113,9 +114,10 @@ public enum QuotaSeriesBuilder {
             // 断点照样推进段号,哪怕这条采样本身画不出来 —— 否则后面的点会被并进前一段
             if breaks[index] != nil { series += 1 }
 
-            guard let limit = sample.limits?.value(for: kind), limit > 0 else { return nil }
+            guard let reading = sample.reading(bucketID),
+                  let limit = reading.limit, limit > 0 else { return nil }
 
-            let used = min(max(sample.cost(for: kind) / limit, 0), 1)
+            let used = min(max(reading.used / limit, 0), 1)
             return (index, QuotaPoint(at: sample.at, remainingRatio: 1 - used, series: series))
         }
     }
@@ -131,17 +133,17 @@ public enum QuotaSeriesBuilder {
     /// - Parameter rule: 重置边界由它算 —— 和判断「是否跨过重置」用的是同一条规则,
     ///   不会出现「按 A 判断断开、按 B 画边界」这种不一致。
     public static func connectors(samples: [Sample],
-                                  kind: QuotaKind,
+                                  bucketID: String,
                                   rule: ResetRule? = nil,
                                   gapThreshold: TimeInterval = HistoryGaps.threshold)
     -> [QuotaConnector] {
-        let drawable = drawablePoints(samples: samples, kind: kind, rule: rule,
+        let drawable = drawablePoints(samples: samples, bucketID: bucketID, rule: rule,
                                       gapThreshold: gapThreshold)
         guard drawable.count > 1 else { return [] }
 
         // 采样序号 → 画出来的那个点。画不出点的采样不在表里。
         let pointBySample = Dictionary(uniqueKeysWithValues: drawable.map { ($0.index, $0.point) })
-        let breaks = breakReasons(samples: samples, kind: kind,
+        let breaks = breakReasons(samples: samples, bucketID: bucketID,
                                   gapThreshold: gapThreshold, rule: rule)
 
         return breaks.keys.sorted().compactMap { index -> QuotaConnector? in
@@ -173,7 +175,7 @@ public enum QuotaSeriesBuilder {
     /// - Parameter rule: 该额度的重置规则。有它时,「周期 ID 变了」是**直接证据**;
     ///   没有它(或规则算不出周期)时,只能退回计数器下降这条补充证据。
     static func breakReasons(samples: [Sample],
-                             kind: QuotaKind,
+                             bucketID: String,
                              gapThreshold: TimeInterval,
                              rule: ResetRule? = nil) -> [Int: BreakReason] {
         guard samples.count > 1 else { return [:] }
@@ -187,7 +189,7 @@ public enum QuotaSeriesBuilder {
             // 哪怕它夹在一段长空白里,也确切说明前后属于不同周期。
             // 既然知道是重置,就不该用虚线把两端连起来 —— 那会画成一条斜着爬升的假线。
             // 空白本身仍由阴影标出,信息没有丢。
-            if crossedReset(from: previous, to: current, kind: kind, rule: rule) {
+            if crossedReset(from: previous, to: current, bucketID: bucketID, rule: rule) {
                 result[index] = .reset
             } else if current.at.timeIntervalSince(previous.at) > gapThreshold {
                 result[index] = .gap
@@ -203,14 +205,17 @@ public enum QuotaSeriesBuilder {
     /// · **计数器下降** —— 补充证据。规则不知道的重置(管理员手动清零、
     ///   服务端改了配置)只剩它能看出来,所以不能因为有了规则就丢掉它。
     private static func crossedReset(from previous: Sample, to current: Sample,
-                                     kind: QuotaKind, rule: ResetRule?) -> Bool {
+                                     bucketID: String, rule: ResetRule?) -> Bool {
         if let rule,
            let before = rule.periodID(containing: previous.at),
            let after = rule.periodID(containing: current.at),
            before != after {
             return true
         }
-        return current.cost(for: kind) < previous.cost(for: kind)
+        // 有一侧没有这条额度就**没有证据** —— 缺数据不等于计数器下降过。
+        guard let before = previous.used(bucketID),
+              let after = current.used(bucketID) else { return false }
+        return after < before
     }
 
     /// 空档区间(用于在图上画阴影)。返回的是每段「缺失」的起止时刻。

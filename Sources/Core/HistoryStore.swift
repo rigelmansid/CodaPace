@@ -62,7 +62,7 @@ public final class HistoryStore {
     /// 当前的库结构版本。加字段、加表都要把它 +1,并在 migrate 里补上对应的一步。
     ///
     /// 用 SQLite 自带的 `user_version`,不额外建表 —— 它就是为这件事准备的。
-    static let schemaVersion: Int32 = 3
+    static let schemaVersion: Int32 = 4
 
     private func migrate() throws {
         let from = try userVersion()
@@ -110,13 +110,60 @@ public final class HistoryStore {
                 ON samples (account_key, ts);
             """)
 
+        // v4 起:额度按**桶**一行一条,而不是几个固定列。
+        //
+        // 固定列装不下别家供应商 —— tu-zi 报的是日/周/月,四个列名一个都对不上。
+        // 改成高表之后,存几条额度由适配器决定,这一层不认识任何一条的名字(不变量 6)。
+        //
+        // `limit_value` 而不是 `limit`:后者是 SQLite 的保留字。
+        // 它可以为 NULL,含义是**当时的上限未知**,和「当时不限额(0)」分开存。
+        try execute("""
+            CREATE TABLE IF NOT EXISTS quota_samples (
+                account_key TEXT NOT NULL,
+                ts          REAL NOT NULL,
+                bucket_id   TEXT NOT NULL,
+                used        REAL NOT NULL,
+                limit_value REAL,
+                PRIMARY KEY (account_key, ts, bucket_id)
+            );
+            """)
+
+        try execute("""
+            CREATE INDEX IF NOT EXISTS idx_quota_samples_account_bucket_ts
+                ON quota_samples (account_key, bucket_id, ts);
+            """)
+
         // v1 → v2:记下采样当时的额度上限。
         //
         // 老行的这四列留空(NULL),**刻意不回填当前上限** —— 那等于把今天的配额
         // 说成当时的事实。读出来是 nil,画图时如实跳过,而不是编一个百分比。
+        //
+        // 必须排在 v3 → v4 展开之前:展开要读这四列,它们得先存在。
         if from < 2 {
             for column in ["total_limit", "daily_limit", "weekly_opus_limit", "window_limit"] {
                 try addColumnIfMissing(column, to: "samples")
+            }
+        }
+
+        // v3 → v4:把四个固定列逐行展开成四条桶行。
+        //
+        // 桶 ID 取值等于原来的列名语义(`total` / `daily` / `weeklyOpus` / `window`)——
+        // 这正是阶段 1 里中转站刻意选用这四个字符串的原因,于是迁移只是**换个摆法**,
+        // 老用户一条曲线都不会丢。
+        //
+        // NULL 原样抄成 NULL。**刻意不回填**任何值:那等于把今天的配额说成当时的事实。
+        //
+        // 一次迁移整个文件里的所有账户分区 —— `user_version` 是按文件记的,
+        // 只会跑这一遍,按当前 accountKey 过滤反而会漏掉其他账户的历史。
+        if from < 4 {
+            for (column, bucketID) in [("total", "total"), ("daily", "daily"),
+                                       ("weekly_opus", "weeklyOpus"), ("window", "window")] {
+                try execute("""
+                    INSERT OR IGNORE INTO quota_samples
+                      (account_key, ts, bucket_id, used, limit_value)
+                    SELECT account_key, ts, '\(bucketID)', \(column)_cost, \(column)_limit
+                    FROM samples;
+                    """)
             }
         }
 
@@ -188,34 +235,70 @@ public final class HistoryStore {
 
     // MARK: - 写入
 
+    /// 写一条采样:`samples` 里一行(时刻 + 两个累计值),`quota_samples` 里每条额度一行。
+    ///
+    /// 两张表要一起改,所以**调用方该把它放进一个事务里** —— `HistoryWriter` 已经这么做了。
+    /// 这里不自己开事务:`transaction` 不可嵌套,在里面开会直接抛错。
     public func insert(_ sample: Sample) throws {
+        // `samples` 自 v4 起只剩 ts / all_tokens / requests 有意义。
+        //
+        // 那四个额度列没删(SQLite 的 DROP COLUMN 看版本,留着也是一条回滚余地),
+        // 但它们是 NOT NULL 且没有默认值,所以新行必须给个数 —— 一律写 0 占位。
+        // **不再有任何代码读它们**,所以这 0 不会变成「真花了 0 块钱」那种假数据;
+        // 它们保存的是 v4 之前的历史,万一要退回旧版本还在原处。
         let sql = """
             INSERT OR REPLACE INTO samples
               (account_key, ts, total_cost, daily_cost, weekly_opus_cost,
-               window_cost, all_tokens, requests,
-               total_limit, daily_limit, weekly_opus_limit, window_limit)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+               window_cost, all_tokens, requests)
+            VALUES (?, ?, 0, 0, 0, 0, ?, ?);
+            """
+        let stmt = try prepare(sql)
+        defer { sqlite3_finalize(stmt) }
+
+        let timestamp = sample.at.timeIntervalSince1970
+        sqlite3_bind_text(stmt, 1, accountKey, -1, SQLITE_TRANSIENT)
+        sqlite3_bind_double(stmt, 2, timestamp)
+        sqlite3_bind_double(stmt, 3, sample.allTokens)
+        sqlite3_bind_int(stmt, 4, Int32(sample.requests))
+        try step(stmt)
+
+        // 先清干净再写:重写同一时刻的采样时,上一次多出来的桶不能留在库里
+        // (INSERT OR REPLACE 只盖同 ID 的那些,盖不掉已经消失的那条)。
+        try deleteQuotaRows(at: timestamp)
+
+        for (bucketID, reading) in sample.quotas {
+            try insertQuotaRow(at: timestamp, bucketID: bucketID, reading: reading)
+        }
+    }
+
+    private func deleteQuotaRows(at timestamp: Double) throws {
+        let stmt = try prepare("DELETE FROM quota_samples WHERE account_key = ? AND ts = ?;")
+        defer { sqlite3_finalize(stmt) }
+        sqlite3_bind_text(stmt, 1, accountKey, -1, SQLITE_TRANSIENT)
+        sqlite3_bind_double(stmt, 2, timestamp)
+        try step(stmt)
+    }
+
+    private func insertQuotaRow(at timestamp: Double,
+                                bucketID: String, reading: QuotaReading) throws {
+        let sql = """
+            INSERT OR REPLACE INTO quota_samples
+              (account_key, ts, bucket_id, used, limit_value)
+            VALUES (?, ?, ?, ?, ?);
             """
         let stmt = try prepare(sql)
         defer { sqlite3_finalize(stmt) }
 
         sqlite3_bind_text(stmt, 1, accountKey, -1, SQLITE_TRANSIENT)
-        sqlite3_bind_double(stmt, 2, sample.at.timeIntervalSince1970)
-        sqlite3_bind_double(stmt, 3, sample.totalCost)
-        sqlite3_bind_double(stmt, 4, sample.dailyCost)
-        sqlite3_bind_double(stmt, 5, sample.weeklyOpusCost)
-        sqlite3_bind_double(stmt, 6, sample.windowCost)
-        sqlite3_bind_double(stmt, 7, sample.allTokens)
-        sqlite3_bind_int(stmt, 8, Int32(sample.requests))
+        sqlite3_bind_double(stmt, 2, timestamp)
+        sqlite3_bind_text(stmt, 3, bucketID, -1, SQLITE_TRANSIENT)
+        sqlite3_bind_double(stmt, 4, reading.used)
 
         // 上限未知时写 NULL,和「上限为 0(不限)」区分开
-        if let limits = sample.limits {
-            sqlite3_bind_double(stmt, 9, limits.total)
-            sqlite3_bind_double(stmt, 10, limits.daily)
-            sqlite3_bind_double(stmt, 11, limits.weeklyOpus)
-            sqlite3_bind_double(stmt, 12, limits.window)
+        if let limit = reading.limit {
+            sqlite3_bind_double(stmt, 5, limit)
         } else {
-            for index in Int32(9)...Int32(12) { sqlite3_bind_null(stmt, index) }
+            sqlite3_bind_null(stmt, 5)
         }
 
         try step(stmt)
@@ -283,32 +366,40 @@ public final class HistoryStore {
         return (sqlite3_column_double(stmt, 0), Int(sqlite3_column_int(stmt, 1)))
     }
 
+    /// 一条采样要横跨两张表,所以取数都走同一条 LEFT JOIN。
+    ///
+    /// 用 LEFT JOIN 而不是 INNER:**一条额度都没有的采样也得读回来**。
+    /// token 累计值和额度是两条独立的链路,响应里没有任何额度时,
+    /// 那一行仍是 token 增量的有效基线 —— INNER JOIN 会把它整条吞掉,
+    /// 于是重启后基线倒退,那段用量会被重复累加一遍。
+    private static let sampleColumns = """
+        SELECT s.ts, s.all_tokens, s.requests, q.bucket_id, q.used, q.limit_value
+        FROM samples s
+        LEFT JOIN quota_samples q
+          ON q.account_key = s.account_key AND q.ts = s.ts
+        """
+
     /// 最近一条采样。**重启后的 token 基线就靠它** ——
     /// 没有它就只能拿累计值当增量,会把上亿的历史全算进今天。
     public func lastSample() throws -> Sample? {
         let sql = """
-            SELECT ts, total_cost, daily_cost, weekly_opus_cost,
-                   window_cost, all_tokens, requests,
-                   total_limit, daily_limit, weekly_opus_limit, window_limit
-            FROM samples WHERE account_key = ?
-            ORDER BY ts DESC LIMIT 1;
+            \(Self.sampleColumns)
+            WHERE s.account_key = ?1
+              AND s.ts = (SELECT MAX(ts) FROM samples WHERE account_key = ?1)
+            ORDER BY s.ts ASC;
             """
         let stmt = try prepare(sql)
         defer { sqlite3_finalize(stmt) }
 
         sqlite3_bind_text(stmt, 1, accountKey, -1, SQLITE_TRANSIENT)
-        guard sqlite3_step(stmt) == SQLITE_ROW else { return nil }
-        return readSample(stmt)
+        return readSamples(stmt).first
     }
 
     public func samples(from: Date, to: Date) throws -> [Sample] {
         let sql = """
-            SELECT ts, total_cost, daily_cost, weekly_opus_cost,
-                   window_cost, all_tokens, requests,
-                   total_limit, daily_limit, weekly_opus_limit, window_limit
-            FROM samples
-            WHERE account_key = ? AND ts >= ? AND ts <= ?
-            ORDER BY ts ASC;
+            \(Self.sampleColumns)
+            WHERE s.account_key = ? AND s.ts >= ? AND s.ts <= ?
+            ORDER BY s.ts ASC;
             """
         let stmt = try prepare(sql)
         defer { sqlite3_finalize(stmt) }
@@ -317,9 +408,26 @@ public final class HistoryStore {
         sqlite3_bind_double(stmt, 2, from.timeIntervalSince1970)
         sqlite3_bind_double(stmt, 3, to.timeIntervalSince1970)
 
-        var result: [Sample] = []
+        return readSamples(stmt)
+    }
+
+    /// 这个账户的历史里**出现过**哪些额度桶。
+    ///
+    /// 额度选择器要靠它:离线时当前快照是 nil,没有它的话选择器会整个空掉,
+    /// 用户连已经攒下的历史都看不了。
+    public func knownBucketIDs() throws -> [String] {
+        let sql = """
+            SELECT DISTINCT bucket_id FROM quota_samples
+            WHERE account_key = ? ORDER BY bucket_id ASC;
+            """
+        let stmt = try prepare(sql)
+        defer { sqlite3_finalize(stmt) }
+
+        sqlite3_bind_text(stmt, 1, accountKey, -1, SQLITE_TRANSIENT)
+
+        var result: [String] = []
         while sqlite3_step(stmt) == SQLITE_ROW {
-            result.append(readSample(stmt))
+            if let id = sqlite3_column_text(stmt, 0) { result.append(String(cString: id)) }
         }
         return result
     }
@@ -357,13 +465,18 @@ public final class HistoryStore {
 
     // MARK: - 保留策略
 
-    /// 删掉早于 cutoff 的采样(按天聚合的 token 桶很小,不清理)
+    /// 删掉早于 cutoff 的采样(按天聚合的 token 桶很小,不清理)。
+    ///
+    /// 两张表都要清 —— 只清 `samples` 会在 `quota_samples` 里留下一堆
+    /// 永远 JOIN 不上的孤儿行,它们不显示、不能删、却一直占着地方。
     public func pruneSamples(before cutoff: Date) throws {
-        let stmt = try prepare("DELETE FROM samples WHERE account_key = ? AND ts < ?;")
-        defer { sqlite3_finalize(stmt) }
-        sqlite3_bind_text(stmt, 1, accountKey, -1, SQLITE_TRANSIENT)
-        sqlite3_bind_double(stmt, 2, cutoff.timeIntervalSince1970)
-        try step(stmt)
+        for table in ["samples", "quota_samples"] {
+            let stmt = try prepare("DELETE FROM \(table) WHERE account_key = ? AND ts < ?;")
+            defer { sqlite3_finalize(stmt) }
+            sqlite3_bind_text(stmt, 1, accountKey, -1, SQLITE_TRANSIENT)
+            sqlite3_bind_double(stmt, 2, cutoff.timeIntervalSince1970)
+            try step(stmt)
+        }
     }
 
     // MARK: - 底层
@@ -393,29 +506,44 @@ public final class HistoryStore {
         }
     }
 
-    private func readSample(_ stmt: OpaquePointer?) -> Sample {
-        Sample(
-            at: Date(timeIntervalSince1970: sqlite3_column_double(stmt, 0)),
-            totalCost: sqlite3_column_double(stmt, 1),
-            dailyCost: sqlite3_column_double(stmt, 2),
-            weeklyOpusCost: sqlite3_column_double(stmt, 3),
-            windowCost: sqlite3_column_double(stmt, 4),
-            allTokens: sqlite3_column_double(stmt, 5),
-            requests: Int(sqlite3_column_int(stmt, 6)),
-            limits: readLimits(stmt, from: 7)
-        )
-    }
+    /// 把 JOIN 出来的扁平行按时刻收拢成采样。
+    ///
+    /// 同一条采样的各个桶在结果里是**连续**的若干行(按 ts 排过序),
+    /// 时刻一变就收一条。`bucket_id` 为 NULL 是 LEFT JOIN 的正常产物 ——
+    /// 那条采样当时一条额度都没有,如实给一个空字典,不是补四条 0。
+    private func readSamples(_ stmt: OpaquePointer?) -> [Sample] {
+        var result: [Sample] = []
 
-    /// 四列任意一列为 NULL 就当整组上限未知 —— 半组上限拼不出一条完整的历史事实。
-    /// 迁移上来的老行四列都是 NULL,正好落在这里。
-    private func readLimits(_ stmt: OpaquePointer?, from index: Int32) -> QuotaLimits? {
-        for offset in Int32(0)..<Int32(4) where
-            sqlite3_column_type(stmt, index + offset) == SQLITE_NULL {
-            return nil
+        var timestamp: Double?
+        var allTokens = 0.0
+        var requests = 0
+        var quotas: [String: QuotaReading] = [:]
+
+        func flush() {
+            guard let timestamp else { return }
+            result.append(Sample(at: Date(timeIntervalSince1970: timestamp),
+                                 allTokens: allTokens, requests: requests, quotas: quotas))
         }
-        return QuotaLimits(total: sqlite3_column_double(stmt, index),
-                           daily: sqlite3_column_double(stmt, index + 1),
-                           weeklyOpus: sqlite3_column_double(stmt, index + 2),
-                           window: sqlite3_column_double(stmt, index + 3))
+
+        while sqlite3_step(stmt) == SQLITE_ROW {
+            let ts = sqlite3_column_double(stmt, 0)
+            if ts != timestamp {
+                flush()
+                timestamp = ts
+                allTokens = sqlite3_column_double(stmt, 1)
+                requests = Int(sqlite3_column_int(stmt, 2))
+                quotas = [:]
+            }
+
+            guard let id = sqlite3_column_text(stmt, 3) else { continue }
+            // NULL 上限 = 当时不知道,和「上限为 0(不限)」是两件事,读回来也要分开
+            let limit: Double? = sqlite3_column_type(stmt, 5) == SQLITE_NULL
+                ? nil : sqlite3_column_double(stmt, 5)
+            quotas[String(cString: id)] = QuotaReading(used: sqlite3_column_double(stmt, 4),
+                                                       limit: limit)
+        }
+        flush()
+
+        return result
     }
 }

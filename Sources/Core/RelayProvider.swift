@@ -172,7 +172,8 @@ extension RelayProvider {
         let weeklyRule = schedule.weeklyRule(limits: L)
         let windowRule = schedule.windowRule(limits: L, now: now)
 
-        // 这四个桶 ID 的取值**刻意等于**从前 QuotaKind 的 rawValue。
+        // 这四个桶 ID 的取值**刻意等于**从前那个 QuotaKind 枚举的 rawValue
+        // (枚举本身在阶段 2 已经删掉,留下的只有这四个字符串)。
         // 同一个字符串还活在三处存量数据里:菜单栏固定选择的偏好、通知去重键、
         // 历史表的四个固定额度列。改了它,老用户的菜单栏选择会失效、
         // 当前周期已发过的告警会重发一遍、历史曲线会对不上。**不要改。**

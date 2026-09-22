@@ -106,36 +106,26 @@ public struct HistoryWriter {
 // MARK: - 快照 → 采样
 
 public extension Sample {
-    /// 从一份快照取出要落历史的数值:四条用量、两个累计值,**以及当时的四个上限**。
+    /// 从一份快照取出要落历史的东西:**快照报了几条额度就存几条**,加两个累计值。
+    ///
+    /// 从前这里按四个固定 ID 回头去取,那是中转站的额度表长进了通用层 ——
+    /// 别家供应商(tu-zi 报的是日/周/月)从那儿出去会四条全空。现在照单全收,
+    /// 适配器声明什么就存什么,这一层不认识任何一条具体额度的名字(不变量 6)。
     ///
     /// 上限必须一起存。它会变(改套餐、中转站调配额),而历史记的是
     /// 「当时花了多少、当时的上限是多少」这个事实 —— 画百分比时用采样自己那条,
     /// 不是用当前上限,否则等于把过去按今天重写一遍。
     init(_ snapshot: Snapshot) {
-        // ⚠︎ EXT-001 阶段 1 的**临时桥接**,阶段 2 连同 QuotaKind 一起删。
-        //
-        // 展示侧已经换成了任意多个额度桶,而历史存储这一层还是四个固定列,
-        // 所以这里要按固定的四个 ID 回头去取。桥接能成立,全靠中转站的桶 ID
-        // 取值等于旧枚举的 rawValue —— 也正因如此,它只对中转站有效:
-        // 别家供应商(tu-zi 报的是日/周/月)从这里出去会四条全空。
-        //
-        // 所以阶段 2 之前**不要接第二个适配器**,顺序不能调换。
-        func bucket(_ kind: QuotaKind) -> QuotaBucket? {
-            snapshot.bucket(id: kind.rawValue)
-        }
-
         self.init(
             at: snapshot.fetchedAt,
-            totalCost: bucket(.total)?.used ?? 0,
-            dailyCost: bucket(.daily)?.used ?? 0,
-            weeklyOpusCost: bucket(.weeklyOpus)?.used ?? 0,
-            windowCost: bucket(.window)?.used ?? 0,
             allTokens: snapshot.totalTokens,
             requests: snapshot.totalRequests,
-            limits: QuotaLimits(total: bucket(.total)?.limit ?? 0,
-                                daily: bucket(.daily)?.limit ?? 0,
-                                weeklyOpus: bucket(.weeklyOpus)?.limit ?? 0,
-                                window: bucket(.window)?.limit ?? 0)
+            // 适配器万一把两条额度写成同一个 ID,取先声明的那条 ——
+            // 历史落盘不该因为一条额度声明有误就整个停摆(uniqueKeysWithValues 会崩)。
+            quotas: Dictionary(
+                snapshot.gauges.map { ($0.id, QuotaReading(used: $0.used, limit: $0.limit)) },
+                uniquingKeysWith: { first, _ in first }
+            )
         )
     }
 }
