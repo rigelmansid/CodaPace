@@ -35,7 +35,15 @@ public enum Fmt {
 
     /// 明细用:始终两位小数 + 千分位  2432.68887 → "$2,432.69"
     public static func money2(_ v: Double) -> String {
-        "$" + (moneyFormatter.string(from: NSNumber(value: v)) ?? String(format: "%.2f", v))
+        "$" + decimal2(v)
+    }
+
+    /// 两位小数 + 千分位,**不带任何单位符号**  2432.68887 → "2,432.69"
+    ///
+    /// 供应商没说单位时用它(见 `QuotaUnit.unknown`)。和 `money2` 共用同一个
+    /// formatter 而不是各写一份 —— 两处平行的数字格式迟早会在小数位或分隔符上分岔。
+    public static func decimal2(_ v: Double) -> String {
+        moneyFormatter.string(from: NSNumber(value: v)) ?? String(format: "%.2f", v)
     }
 
     // MARK: - 数量

@@ -266,8 +266,8 @@ final class ExpiredWindowPaceTests: XCTestCase {
     private let start = Date(timeIntervalSince1970: 1_788_800_000)
     private var window: TimeWindow { TimeWindow(start: start, end: start.addingTimeInterval(3600)) }
 
-    private func gauge(used: Double) -> Gauge {
-        Gauge(kind: .window, used: used, limit: 100, window: window)
+    private func gauge(used: Double) -> QuotaBucket {
+        bucket("window", used: used, limit: 100, window: window)
     }
 
     func testInsideTheWindowStillGivesAVerdict() {

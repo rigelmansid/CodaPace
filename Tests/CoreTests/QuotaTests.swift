@@ -1,6 +1,21 @@
 import Foundation
 import CodaPaceCore
 
+/// 造一条额度桶。**跨文件共用**(额度、通知、快照、重置四处的用例都要造桶),
+/// 所以不加 private —— 各文件各抄一份迟早会分岔。
+///
+/// 放在这里而不是 TestSupport.swift:那个文件是可丢弃的测试框架层
+/// (文件头写明装了 Xcode 就删掉它),塞进领域代码会让它删不掉。
+///
+/// 名称和单位给默认值,是因为绝大多数用例只关心 id / 用量 / 上限 ——
+/// 让断言那一行保持原来的可读性,不被两个与本例无关的参数撑开。
+func bucket(_ id: String, used: Double, limit: Double,
+            unit: QuotaUnit = .money(currency: "USD"),
+            window: TimeWindow? = nil, rule: ResetRule? = nil) -> QuotaBucket {
+    QuotaBucket(id: id, title: .provider(id), used: used, limit: limit,
+                unit: unit, window: window, rule: rule)
+}
+
 // 全部用固定时区 + 固定时刻,保证在任何机器上结果一致
 private let shanghai = TimeZone(identifier: "Asia/Shanghai")!
 
@@ -56,7 +71,7 @@ final class PaceTests: XCTestCase {
         let end = start.addingTimeInterval(3600)
         let now = end.addingTimeInterval(-1317)
 
-        let g = Gauge(kind: .window, used: 3.80129775, limit: 20,
+        let g = bucket("window", used: 3.80129775, limit: 20,
                       window: TimeWindow(start: start, end: end))
 
         XCTAssertEqual(g.remainingRatio, 0.8099, accuracy: 0.001)
@@ -75,7 +90,7 @@ final class PaceTests: XCTestCase {
 
         // 时间才过一半,额度已经用掉 70% → 超速。
         // 剩余 30% 仍高于 20% 的危险线,所以状态应停在 warning 而不是 critical。
-        let g = Gauge(kind: .window, used: 70, limit: 100,
+        let g = bucket("window", used: 70, limit: 100,
                       window: TimeWindow(start: start, end: end))
 
         guard case .overPace(let delta) = g.pace(now: now) else {
@@ -87,13 +102,13 @@ final class PaceTests: XCTestCase {
 
     /// 关键规则:没有时间窗口就不做速度判断,绝不臆造
     func testNoWindowMeansNoPaceVerdict() {
-        let g = Gauge(kind: .total, used: 2432.69, limit: 3000, window: nil)
+        let g = bucket("total", used: 2432.69, limit: 3000, window: nil)
         XCTAssertEqual(g.pace(now: makeDate(2026, 9, 8)), .unavailable)
     }
 
     func testUnlimitedGaugeHasNoPaceAndIsNeverCritical() {
         let start = makeDate(2026, 9, 8, 0, 0)
-        let g = Gauge(kind: .daily, used: 500, limit: 0,
+        let g = bucket("daily", used: 500, limit: 0,
                       window: TimeWindow(start: start, end: start.addingTimeInterval(86400)))
 
         XCTAssertTrue(g.unlimited)
@@ -108,7 +123,7 @@ final class PaceTests: XCTestCase {
         let now = start.addingTimeInterval(60)        // 时间才过 1.7%
 
         // 剩余 5% —— 既超速又吃紧,应判为 critical
-        let g = Gauge(kind: .window, used: 95, limit: 100,
+        let g = bucket("window", used: 95, limit: 100,
                       window: TimeWindow(start: start, end: end))
 
         XCTAssertTrue(g.pace(now: now).isOverPace)
@@ -117,7 +132,7 @@ final class PaceTests: XCTestCase {
 
     func testRemainingAndUsedRatioAreClamped() {
         // 超额使用不应产生负剩余或 >1 的比例
-        let g = Gauge(kind: .daily, used: 150, limit: 100)
+        let g = bucket("daily", used: 150, limit: 100)
         XCTAssertEqual(g.usedRatio, 1, accuracy: 1e-12)
         XCTAssertEqual(g.remainingRatio, 0, accuracy: 1e-12)
         XCTAssertEqual(g.remaining, 0, accuracy: 1e-12)

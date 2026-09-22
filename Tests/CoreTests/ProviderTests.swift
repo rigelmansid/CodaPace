@@ -251,7 +251,7 @@ private struct SecretBearingStub: UsageProviderAdapter {
 
 // MARK: - 连接报告
 
-private func reportSnapshot(gauges: [Gauge], complete: Bool = true) -> Snapshot {
+private func reportSnapshot(gauges: [QuotaBucket], complete: Bool = true) -> Snapshot {
     Snapshot(name: "eva", isActive: true, gauges: gauges,
              totalCost: 0, totalRequests: 0, totalTokens: 0,
              monthlyCost: nil, monthlyRequests: nil, fetchedAt: Date(),
@@ -273,14 +273,14 @@ final class ConnectionReportTests: XCTestCase {
     /// 一条带上限的额度都没有 —— 百分比和 pace 都显示不出来,该提前说
     func testNoLimitedQuotaIsReported() {
         let report = ConnectionReport(
-            snapshot: reportSnapshot(gauges: [Gauge(kind: .daily, used: 5, limit: 0)]),
+            snapshot: reportSnapshot(gauges: [bucket("daily", used: 5, limit: 0)]),
             providerID: "p", displayName: "P", capabilities: [])
         XCTAssertTrue(report.findings.contains(.noLimitedQuota))
     }
 
     func testIncompleteUsageIsReported() {
         let report = ConnectionReport(
-            snapshot: reportSnapshot(gauges: [Gauge(kind: .daily, used: 5, limit: 10)],
+            snapshot: reportSnapshot(gauges: [bucket("daily", used: 5, limit: 10)],
                                      complete: false),
             providerID: "p", displayName: "P", capabilities: [])
         XCTAssertTrue(report.findings.contains(.incompleteUsage))
@@ -288,7 +288,7 @@ final class ConnectionReportTests: XCTestCase {
 
     func testNoResetWindowIsReported() {
         let report = ConnectionReport(
-            snapshot: reportSnapshot(gauges: [Gauge(kind: .daily, used: 5, limit: 10)]),
+            snapshot: reportSnapshot(gauges: [bucket("daily", used: 5, limit: 10)]),
             providerID: "p", displayName: "P", capabilities: [])
         XCTAssertTrue(report.findings.contains(.noResetWindow))
     }
@@ -296,7 +296,7 @@ final class ConnectionReportTests: XCTestCase {
     /// 能力声明缺失会直接变成用户看得见的提示 —— 这是能力声明真正被消费的地方
     func testMissingCapabilitiesBecomeFindings() {
         let report = ConnectionReport(
-            snapshot: reportSnapshot(gauges: [Gauge(kind: .daily, used: 5, limit: 10,
+            snapshot: reportSnapshot(gauges: [bucket("daily", used: 5, limit: 10,
                                                     window: window)]),
             providerID: "p", displayName: "P", capabilities: [])
         XCTAssertTrue(report.findings.contains(.dailyResetInferred))
@@ -305,7 +305,7 @@ final class ConnectionReportTests: XCTestCase {
 
     func testDeclaredCapabilitiesProduceNoSuchFindings() {
         let report = ConnectionReport(
-            snapshot: reportSnapshot(gauges: [Gauge(kind: .daily, used: 5, limit: 10,
+            snapshot: reportSnapshot(gauges: [bucket("daily", used: 5, limit: 10,
                                                     window: window)]),
             providerID: "p", displayName: "P",
             capabilities: [.dailyResetTime, .usageHistory])
@@ -315,7 +315,7 @@ final class ConnectionReportTests: XCTestCase {
     /// 中转站的真实情况:两条「不给」如实出现在报告里
     func testRelayReportsItsTwoKnownLimitations() {
         let report = ConnectionReport(
-            snapshot: reportSnapshot(gauges: [Gauge(kind: .daily, used: 5, limit: 10,
+            snapshot: reportSnapshot(gauges: [bucket("daily", used: 5, limit: 10,
                                                     window: window)]),
             providerID: relay.providerID, displayName: relay.displayName,
             capabilities: relay.capabilities)

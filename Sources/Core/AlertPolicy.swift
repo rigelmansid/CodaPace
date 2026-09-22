@@ -17,23 +17,41 @@ public struct QuotaAlert: Equatable {
     }
 
     public let kind: Kind
-    public let quota: QuotaKind
+
+    /// 哪条额度。存的是**额度桶 ID**(EXT-001),从前是固定枚举。
+    ///
+    /// 中转站那四个 ID 的取值等于旧枚举的 rawValue,所以去重键的形状一字没变 ——
+    /// 升级之后当前周期里已经发过的告警**不会被重发一遍**。
+    public let bucketID: String
+
+    /// 额度名与计量单位,**随告警一起带走**。
+    ///
+    /// 不在投递时回头按 ID 去当前快照里查:投递要等权限和系统回执,期间快照
+    /// 完全可能已经换了一份(甚至换了账户)。那时查到的名字和单位属于另一份数据,
+    /// 而通知说的是**发起告警那一刻**的事。单位尤其不能少 —— 少了它就只能
+    /// 拿 `Fmt.money2` 打出 `$`,而那正是「凭空安一个币种」。
+    public let title: BucketTitle
+    public let unit: QuotaUnit
+
     /// 本轮重置周期的起点。没有时间窗口的额度用当天零点,于是退化成「每天最多提醒一次」。
     public let cycleStart: Date
     public let remainingRatio: Double
     public let remaining: Double
 
-    public init(kind: Kind, quota: QuotaKind, cycleStart: Date,
-                remainingRatio: Double, remaining: Double) {
+    public init(kind: Kind, bucketID: String,
+                title: BucketTitle, unit: QuotaUnit,
+                cycleStart: Date, remainingRatio: Double, remaining: Double) {
         self.kind = kind
-        self.quota = quota
+        self.bucketID = bucketID
+        self.title = title
+        self.unit = unit
         self.cycleStart = cycleStart
         self.remainingRatio = remainingRatio
         self.remaining = remaining
     }
 
     public var dedupeKey: String {
-        "\(kind.rawValue)|\(quota.rawValue)|\(Int(cycleStart.timeIntervalSince1970))"
+        "\(kind.rawValue)|\(bucketID)|\(Int(cycleStart.timeIntervalSince1970))"
     }
 }
 
@@ -61,7 +79,8 @@ public enum AlertPolicy {
             // 额度不足优先。此时不再叠加超速提醒 —— 两条说的是同一件事,
             // 而且"快用完了"比"用得偏快"更该被看到。
             if gauge.remainingRatio < lowThreshold {
-                return QuotaAlert(kind: .lowQuota, quota: gauge.kind,
+                return QuotaAlert(kind: .lowQuota, bucketID: gauge.id,
+                                  title: gauge.title, unit: gauge.unit,
                                   cycleStart: cycleStart,
                                   remainingRatio: gauge.remainingRatio,
                                   remaining: gauge.remaining)
@@ -73,7 +92,8 @@ public enum AlertPolicy {
                   gauge.remainingRatio <= maxRemainingForPace
             else { return nil }
 
-            return QuotaAlert(kind: .overPace, quota: gauge.kind,
+            return QuotaAlert(kind: .overPace, bucketID: gauge.id,
+                              title: gauge.title, unit: gauge.unit,
                               cycleStart: window.start,
                               remainingRatio: gauge.remainingRatio,
                               remaining: gauge.remaining)

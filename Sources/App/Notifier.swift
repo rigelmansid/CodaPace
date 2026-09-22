@@ -126,9 +126,11 @@ final class Notifier {
 
     private func request(for alert: QuotaAlert) -> UNNotificationRequest {
         let language = Localization.shared.language
-        let quota = alert.quota.label(language)
+        let quota = alert.title.text(language)
         let percent = Fmt.percent(alert.remainingRatio)
-        let money = Fmt.money2(alert.remaining)
+        // 按**那条额度自己的单位**排版。写死 Fmt.money2 会给单位未知的额度
+        // 打上一个我们并不知道的币种(EXT-001)。
+        let money = alert.unit.amount(alert.remaining)
 
         let content = UNMutableNotificationContent()
         switch alert.kind {

@@ -52,8 +52,16 @@ public struct TimeWindow: Equatable {
     }
 }
 
-// MARK: - 额度种类
+// MARK: - 额度种类(只剩历史层在用,EXT-001 阶段 2 会清掉)
 
+/// 固定的四种额度。
+///
+/// **它已经不再是展示侧的词汇** —— 展示侧换成了 `QuotaBucket`,因为固定枚举
+/// 装不下别家供应商的额度(tu-zi 报的是日/周/月,压根没有「本周 Opus」这个概念)。
+///
+/// 这里暂时留着,是因为历史存储那一层还按这四项分列(`samples` 表四个固定额度列、
+/// `Sample.cost(for:)`、`QuotaSeriesBuilder`)。阶段 2 把存储改成按桶的高表之后,
+/// 这个类型连同 `QuotaLimits.value(for:)` 一起删掉。**不要在新代码里用它。**
 public enum QuotaKind: String, CaseIterable, Equatable {
     case total          // 账户总配额,无时间窗口
     case daily          // 每日
@@ -66,6 +74,69 @@ public enum QuotaKind: String, CaseIterable, Equatable {
         case .daily:      return L10n.text(.quotaDaily, language)
         case .weeklyOpus: return L10n.text(.quotaWeeklyOpus, language)
         case .window:     return L10n.text(.quotaWindow, language)
+        }
+    }
+}
+
+// MARK: - 计量单位
+
+/// 这条额度按什么计量。
+///
+/// 存在的理由很具体:tu-zi 的 `daily_used` **没有任何单位标记**,而同一份响应里
+/// `fuel_pack.available_usd` 明确带了 `_usd`。把前者也当美元打成 `$29.22`,
+/// 就是凭空给一个我们并不知道单位的数字安一个币种 —— 正是「不发明数据」禁止的事。
+///
+/// 所以单位是**供应商声明的事实**:声明得出就带上,声明不出就是 `.unknown`,
+/// 界面显示裸数字。这比默认美元诚实,也比隐藏整条额度有用。
+public enum QuotaUnit: Equatable {
+    case money(currency: String)
+    case tokens
+    case requests
+    /// 对方没说单位。显示裸数字,不加任何符号。
+    case unknown
+
+    /// 按本单位把一个量排成文字。
+    public func amount(_ value: Double) -> String {
+        switch self {
+        case .money(let currency):
+            // 非美元只给「数字 + 币种代码」,不猜符号 ——
+            // €/£/¥ 各有各的位置和空格习惯,猜错比不猜更难看。
+            return currency == "USD" ? Fmt.money2(value) : "\(Fmt.decimal2(value)) \(currency)"
+        case .tokens, .requests:
+            return Fmt.exact(value)
+        case .unknown:
+            return Fmt.decimal2(value)
+        }
+    }
+
+    /// 菜单栏用的紧凑写法。那里空间按像素算,千分位和两位小数都是奢侈品。
+    public func compactAmount(_ value: Double) -> String {
+        switch self {
+        case .money(let currency):
+            return currency == "USD" ? Fmt.money(value) : "\(Fmt.count(value)) \(currency)"
+        case .tokens, .requests:
+            return Fmt.count(value)
+        case .unknown:
+            return Fmt.count(value)
+        }
+    }
+}
+
+// MARK: - 额度名称
+
+/// 这条额度叫什么。
+///
+/// 两态是刻意的:能对上我们已有语义的(每日、限流窗口)用本地化名;对不上的
+/// **原样用供应商自己的名字**。tu-zi 的 `"Codex(月卡mini)"` 是一个套餐名,
+/// 我们的词汇表里没有对应概念,硬塞进「本周 Opus」之类只会让界面说出一件不是事实的事。
+public enum BucketTitle: Equatable {
+    case localized(LangKey)
+    case provider(String)
+
+    public func text(_ language: Language) -> String {
+        switch self {
+        case .localized(let key): return L10n.text(key, language)
+        case .provider(let name): return name
         }
     }
 }
@@ -116,32 +187,66 @@ public enum QuotaThresholds {
     public static let critical = 0.20
     /// 通知用的更低一档
     public static let notifyLow = 0.10
+
+    /// 周期短于这个长度就算「高频窗口」,菜单栏自动选择会避开它。
+    ///
+    /// 取 6 小时是为了把「限流窗口」这类一小时一轮的和「每日」清楚分开,
+    /// 中间留足余量。定成一个阈值而不是记住某条额度的名字,是为了让
+    /// 新供应商的 15 分钟窗口自动落进同一条规则。
+    public static let volatileWindow: TimeInterval = 6 * 3600
 }
 
-// MARK: - 一条额度
+// MARK: - 一条额度(EXT-001 的额度桶)
 
-public struct Gauge: Equatable {
-    public let kind: QuotaKind
+public struct QuotaBucket: Equatable {
+
+    /// 供应商范围内稳定的标识。**不拿展示名当主键** —— 展示名会随本地化和措辞变。
+    ///
+    /// 中转站那四个 id(`total` / `daily` / `weeklyOpus` / `window`)的取值
+    /// **刻意等于**从前 `QuotaKind` 的 rawValue,因为这个字符串同时出现在三处存量数据里:
+    /// 菜单栏固定选择的偏好、通知去重键、历史表的四个固定额度列。
+    /// 取值一改,老用户的菜单栏选择、当前周期的去重记录和历史曲线会同时出问题。**不要改。**
+    public let id: String
+
+    public let title: BucketTitle
     public let used: Double
     public let limit: Double          // 0 表示不限
+    public let unit: QuotaUnit
     public let window: TimeWindow?    // nil 表示没有时间维度
 
     /// 产生 window 的那条规则。历史图靠它按**各自的算法**反推过去的周期边界 ——
     /// 统一按秒数往回减会在夏令时切换日错位。没有规则时就不画重置虚线。
     public let rule: ResetRule?
 
-    public init(kind: QuotaKind, used: Double, limit: Double,
+    public init(id: String, title: BucketTitle, used: Double, limit: Double,
+                unit: QuotaUnit = .money(currency: "USD"),
                 window: TimeWindow? = nil, rule: ResetRule? = nil) {
-        self.kind = kind
+        self.id = id
+        self.title = title
         self.used = used
         self.limit = limit
+        self.unit = unit
         self.window = window
         self.rule = rule
     }
 
-    public func label(_ language: Language) -> String { kind.label(language) }
+    public func label(_ language: Language) -> String { title.text(language) }
+
+    /// 把一个量按本桶的单位排成文字。用量、上限、剩余都该走它,
+    /// 而不是各自去调 `Fmt.money2` —— 那样单位未知的桶照样会被打上 `$`。
+    public func amount(_ value: Double) -> String { unit.amount(value) }
 
     public var unlimited: Bool { limit <= 0 }
+
+    /// 周期短到会让菜单栏的数字和颜色不停跳。
+    ///
+    /// 从**周期长度**推出,而不是记住某个供应商的某条额度叫什么:
+    /// 后者会把供应商细节漏进通用层(不变量 6),而且新供应商的短窗口
+    /// 还得靠适配器作者记得去标一下。
+    public var hasVolatileWindow: Bool {
+        guard let window, window.duration > 0 else { return false }
+        return window.duration < QuotaThresholds.volatileWindow
+    }
 
     /// 已用比例 0…1
     public var usedRatio: Double {

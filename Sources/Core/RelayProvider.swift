@@ -172,31 +172,48 @@ extension RelayProvider {
         let weeklyRule = schedule.weeklyRule(limits: L)
         let windowRule = schedule.windowRule(limits: L, now: now)
 
-        let gauges: [Gauge] = [
+        // 这四个桶 ID 的取值**刻意等于**从前 QuotaKind 的 rawValue。
+        // 同一个字符串还活在三处存量数据里:菜单栏固定选择的偏好、通知去重键、
+        // 历史表的四个固定额度列。改了它,老用户的菜单栏选择会失效、
+        // 当前周期已发过的告警会重发一遍、历史曲线会对不上。**不要改。**
+        //
+        // 单位一律美元:这家的字段名就是 cost,界面上一直按美元显示,
+        // 而且它确实是按金额计费的。不是所有供应商都能这么说(见 TuziProvider)。
+        let usd = QuotaUnit.money(currency: "USD")
+
+        let gauges: [QuotaBucket] = [
             // 账户总配额:没有重置周期,所以没有窗口,也就不做速度判断
-            Gauge(kind: .total,
-                  used: L.currentTotalCost,
-                  limit: L.totalCostLimit,
-                  window: nil,
-                  rule: nil),
+            QuotaBucket(id: "total",
+                        title: .localized(.quotaTotal),
+                        used: L.currentTotalCost,
+                        limit: L.totalCostLimit,
+                        unit: usd,
+                        window: nil,
+                        rule: nil),
 
-            Gauge(kind: .daily,
-                  used: L.currentDailyCost,
-                  limit: L.dailyCostLimit,
-                  window: dailyRule.period(containing: now),
-                  rule: dailyRule),
+            QuotaBucket(id: "daily",
+                        title: .localized(.quotaDaily),
+                        used: L.currentDailyCost,
+                        limit: L.dailyCostLimit,
+                        unit: usd,
+                        window: dailyRule.period(containing: now),
+                        rule: dailyRule),
 
-            Gauge(kind: .weeklyOpus,
-                  used: L.weeklyOpusCost,
-                  limit: L.weeklyOpusCostLimit,
-                  window: weeklyRule?.period(containing: now),
-                  rule: weeklyRule),
+            QuotaBucket(id: "weeklyOpus",
+                        title: .localized(.quotaWeeklyOpus),
+                        used: L.weeklyOpusCost,
+                        limit: L.weeklyOpusCostLimit,
+                        unit: usd,
+                        window: weeklyRule?.period(containing: now),
+                        rule: weeklyRule),
 
-            Gauge(kind: .window,
-                  used: L.currentWindowCost,
-                  limit: L.rateLimitCost,
-                  window: schedule.windowInterval(limits: L, now: now),
-                  rule: windowRule),
+            QuotaBucket(id: "window",
+                        title: .localized(.quotaWindow),
+                        used: L.currentWindowCost,
+                        limit: L.rateLimitCost,
+                        unit: usd,
+                        window: schedule.windowInterval(limits: L, now: now),
+                        rule: windowRule),
         ]
 
         return Snapshot(

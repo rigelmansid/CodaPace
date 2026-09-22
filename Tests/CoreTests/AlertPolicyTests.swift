@@ -10,7 +10,7 @@ private func alertDate(_ y: Int, _ mo: Int, _ d: Int, _ h: Int = 0, _ mi: Int = 
 }
 
 /// 造一个只关心某几条额度的快照,其余留成「不限」以免干扰
-private func alertSnapshot(_ gauges: [Gauge], at now: Date) -> Snapshot {
+private func alertSnapshot(_ gauges: [QuotaBucket], at now: Date) -> Snapshot {
     Snapshot(name: "eva", isActive: true, gauges: gauges,
              totalCost: 0, totalRequests: 0, totalTokens: 0,
              monthlyCost: nil, monthlyRequests: nil, fetchedAt: now)
@@ -23,24 +23,24 @@ final class AlertPolicyTests: XCTestCase {
     func testLowQuotaFires() {
         let now = alertDate(2026, 9, 8, 12)
         // 剩 5%,低于 10% 阈值
-        let snap = alertSnapshot([Gauge(kind: .total, used: 95, limit: 100)], at: now)
+        let snap = alertSnapshot([bucket("total", used: 95, limit: 100)], at: now)
 
         let alerts = AlertPolicy.candidates(for: snap, now: now, timeZone: alertTZ)
         XCTAssertEqual(alerts.count, 1)
         XCTAssertEqual(alerts[0].kind, .lowQuota)
-        XCTAssertEqual(alerts[0].quota, .total)
+        XCTAssertEqual(alerts[0].bucketID, "total")
     }
 
     func testComfortableQuotaDoesNotFire() {
         let now = alertDate(2026, 9, 8, 12)
-        let snap = alertSnapshot([Gauge(kind: .total, used: 30, limit: 100)], at: now)
+        let snap = alertSnapshot([bucket("total", used: 30, limit: 100)], at: now)
         XCTAssertEqual(AlertPolicy.candidates(for: snap, now: now, timeZone: alertTZ).count, 0)
     }
 
     /// 不限额度永远不提醒
     func testUnlimitedQuotaNeverFires() {
         let now = alertDate(2026, 9, 8, 12)
-        let snap = alertSnapshot([Gauge(kind: .daily, used: 9999, limit: 0)], at: now)
+        let snap = alertSnapshot([bucket("daily", used: 9999, limit: 0)], at: now)
         XCTAssertEqual(AlertPolicy.candidates(for: snap, now: now, timeZone: alertTZ).count, 0)
     }
 
@@ -52,7 +52,7 @@ final class AlertPolicyTests: XCTestCase {
         let window = TimeWindow(start: start, end: start.addingTimeInterval(3600))
 
         // 时间过半,额度只剩 40% → 超速,且剩余在提醒区间内
-        let snap = alertSnapshot([Gauge(kind: .window, used: 60, limit: 100, window: window)],
+        let snap = alertSnapshot([bucket("window", used: 60, limit: 100, window: window)],
                                  at: now)
 
         let alerts = AlertPolicy.candidates(for: snap, now: now, timeZone: alertTZ)
@@ -66,7 +66,7 @@ final class AlertPolicyTests: XCTestCase {
         let now = start.addingTimeInterval(3600 * 0.05)         // 才过 5%
         let window = TimeWindow(start: start, end: start.addingTimeInterval(3600))
 
-        let snap = alertSnapshot([Gauge(kind: .window, used: 30, limit: 100, window: window)],
+        let snap = alertSnapshot([bucket("window", used: 30, limit: 100, window: window)],
                                  at: now)
         XCTAssertEqual(AlertPolicy.candidates(for: snap, now: now, timeZone: alertTZ).count, 0)
     }
@@ -78,7 +78,7 @@ final class AlertPolicyTests: XCTestCase {
         let window = TimeWindow(start: start, end: start.addingTimeInterval(3600))
 
         // 剩 75%,高于 60% 的提醒门槛
-        let snap = alertSnapshot([Gauge(kind: .window, used: 25, limit: 100, window: window)],
+        let snap = alertSnapshot([bucket("window", used: 25, limit: 100, window: window)],
                                  at: now)
         XCTAssertEqual(AlertPolicy.candidates(for: snap, now: now, timeZone: alertTZ).count, 0)
     }
@@ -89,7 +89,7 @@ final class AlertPolicyTests: XCTestCase {
         let now = start.addingTimeInterval(3600 * 0.5)
         let window = TimeWindow(start: start, end: start.addingTimeInterval(3600))
 
-        let snap = alertSnapshot([Gauge(kind: .window, used: 96, limit: 100, window: window)],
+        let snap = alertSnapshot([bucket("window", used: 96, limit: 100, window: window)],
                                  at: now)
 
         let alerts = AlertPolicy.candidates(for: snap, now: now, timeZone: alertTZ)
@@ -102,7 +102,7 @@ final class AlertPolicyTests: XCTestCase {
     /// 同一周期内只提醒一次,否则每 60 秒一次刷新就是每 60 秒一次骚扰
     func testAlertIsNotRepeatedWithinSameCycle() {
         let now = alertDate(2026, 9, 8, 12)
-        let snap = alertSnapshot([Gauge(kind: .total, used: 95, limit: 100)], at: now)
+        let snap = alertSnapshot([bucket("total", used: 95, limit: 100)], at: now)
 
         let first = AlertPolicy.candidates(for: snap, now: now, timeZone: alertTZ)
         XCTAssertEqual(first.count, 1)
@@ -123,7 +123,7 @@ final class AlertPolicyTests: XCTestCase {
 
         func snap(_ start: Date) -> Snapshot {
             let window = TimeWindow(start: start, end: start.addingTimeInterval(3600))
-            return alertSnapshot([Gauge(kind: .window, used: 95, limit: 100, window: window)],
+            return alertSnapshot([bucket("window", used: 95, limit: 100, window: window)],
                                  at: start.addingTimeInterval(1800))
         }
 
@@ -149,10 +149,10 @@ final class AlertPolicyTests: XCTestCase {
         let day2 = alertDate(2026, 9, 9, 12)
 
         let a = AlertPolicy.candidates(
-            for: alertSnapshot([Gauge(kind: .total, used: 95, limit: 100)], at: day1),
+            for: alertSnapshot([bucket("total", used: 95, limit: 100)], at: day1),
             now: day1, timeZone: alertTZ)[0]
         let b = AlertPolicy.candidates(
-            for: alertSnapshot([Gauge(kind: .total, used: 95, limit: 100)], at: day2),
+            for: alertSnapshot([bucket("total", used: 95, limit: 100)], at: day2),
             now: day2, timeZone: alertTZ)[0]
 
         XCTAssertTrue(a.dedupeKey != b.dedupeKey)
@@ -162,8 +162,8 @@ final class AlertPolicyTests: XCTestCase {
     func testMultipleQuotasAlertIndependently() {
         let now = alertDate(2026, 9, 8, 12)
         let snap = alertSnapshot([
-            Gauge(kind: .total, used: 95, limit: 100),
-            Gauge(kind: .daily, used: 96, limit: 100),
+            bucket("total", used: 95, limit: 100),
+            bucket("daily", used: 96, limit: 100),
         ], at: now)
 
         let alerts = AlertPolicy.candidates(for: snap, now: now, timeZone: alertTZ)
@@ -174,9 +174,11 @@ final class AlertPolicyTests: XCTestCase {
 
 // MARK: - 已发送账本
 
-private func lowAlert(_ quota: QuotaKind = .total, cycle: Date = alertDate(2026, 9, 8, 0)) -> QuotaAlert {
-    QuotaAlert(kind: .lowQuota, quota: quota, cycleStart: cycle,
-               remainingRatio: 0.05, remaining: 3.5)
+private func lowAlert(_ bucketID: String = "total",
+                      cycle: Date = alertDate(2026, 9, 8, 0)) -> QuotaAlert {
+    QuotaAlert(kind: .lowQuota, bucketID: bucketID,
+               title: .provider(bucketID), unit: .money(currency: "USD"),
+               cycleStart: cycle, remainingRatio: 0.05, remaining: 3.5)
 }
 
 private let accountA = AccountIdentity(providerID: "p", baseURL: "https://a.example.com", apiId: "id-a")

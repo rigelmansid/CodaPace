@@ -39,19 +39,27 @@ enum Config {
 
     /// 菜单栏显示哪条额度。默认「今日」——
     /// 日常最该盯的是今天还能用多少、离重置还有多久,而不是账户总配额。
+    ///
+    /// 存的是额度桶 ID(EXT-001)。**存量偏好不需要迁移** —— 从前存的是
+    /// `QuotaKind` 的 rawValue,而中转站的桶 ID 取值就等于那些 rawValue,
+    /// 所以老用户选的那一条原样还在。读不到就退回「今日」,不认识的 ID
+    /// 会在 `menuBarGauge` 里自然退回自动选择,不必在这里判。
     static var menuBarSource: MenuBarSource {
         get {
-            let raw = defaults.string(forKey: "menuBarSource") ?? QuotaKind.daily.rawValue
-            if raw == "auto" { return .auto }
-            return .fixed(QuotaKind(rawValue: raw) ?? .daily)
+            let raw = defaults.string(forKey: "menuBarSource") ?? Self.defaultBucketID
+            return raw == "auto" ? .auto : .fixed(bucketID: raw)
         }
         set {
             switch newValue {
-            case .auto:            defaults.set("auto", forKey: "menuBarSource")
-            case .fixed(let kind): defaults.set(kind.rawValue, forKey: "menuBarSource")
+            case .auto:                defaults.set("auto", forKey: "menuBarSource")
+            case .fixed(let bucketID): defaults.set(bucketID, forKey: "menuBarSource")
             }
         }
     }
+
+    /// 默认盯「今日」:日常最该看的是今天还能用多少、离重置还有多久,不是账户总配额。
+    /// 这个字符串同时是中转站那条日额度的桶 ID。
+    static let defaultBucketID = "daily"
 
     /// 界面语言。没手动选过就跟随系统偏好。
     static var language: Language {

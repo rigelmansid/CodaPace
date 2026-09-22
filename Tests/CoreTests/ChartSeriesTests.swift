@@ -383,6 +383,38 @@ final class HistoricalLimitTests: XCTestCase {
         XCTAssertEqual(unlimited.count, 3)
         XCTAssertEqual(legacy.count, 3)
     }
+
+    /// **画得出的曲线同样不暴露它跳过了什么**（OPT-012 的判据依据）。
+    ///
+    /// 上一例说的是曲线为空时；这一例是曲线**画得出来**、但只画出了一部分。
+    /// OPT-009 建的那个第二信号只在点数组为空时才被用上，于是「一部分画得出、
+    /// 一部分画不出」这种混合情形落在判断之外：只要有一个点能画，曲线就照画，
+    /// 被跳过的那些既不在线上、也不在任何一句文案里。
+    ///
+    /// 这正是 OPT-008 之后老用户必然遇到的形态（升级前的采样没记过当时的上限）。
+    /// 曲线本身给不出这个差额 —— 界面要如实说明就只能另给一个计数，
+    /// 这里把「单看曲线看不出来」钉住。
+    func testAPartialCurveDoesNotRevealWhatItSkipped() {
+        // 前 6 条是升级前的老记录（没记上限），后 2 条正常
+        let legacy = (0..<6).map { chartSample(minutes: Double($0), daily: 50, limit: nil) }
+        let recorded = (6..<8).map { chartSample(minutes: Double($0), daily: 50, limit: 100) }
+        let mixed = legacy + recorded
+
+        let points = QuotaSeriesBuilder.build(samples: mixed, kind: .daily)
+
+        // 曲线画得出来 —— 所以界面不会走「全都算不出百分比」那条分支
+        XCTAssertFalse(points.isEmpty)
+        // 但它只代表 8 条里的 2 条，另外 6 条无声无息地没了
+        XCTAssertEqual(points.count, 2)
+        XCTAssertEqual(mixed.count, 8)
+
+        // 曲线上没有任何东西能说出那 6 条的存在：
+        // 首点就是第 7 条采样，看不出它前面还有过采样
+        XCTAssertEqual(points.first?.at, mixed[6].at)
+        // 段号也不行 —— 跳过的采样照样推进段号，画得出的点却挤在同一段里，
+        // 段号既可能因重置和空档而增加，本身不是「跳过了几条」的计数
+        XCTAssertEqual(points.first?.series, points.last?.series)
+    }
 }
 
 // MARK: - 周期 ID 作为切段证据(EXT-005)

@@ -5,6 +5,13 @@
 //  MenuBarExtra 的 label 会把内容按模板图渲染,颜色被抹平成单色 ——
 //  而我们需要状态色(正常/橙/红)。自绘 + isTemplate = false 才能保留原色。
 //
+//  中性色按**菜单栏自己的外观**解析,不是 app 的主题设置(EXT-008)。
+//  亮色主题下菜单栏是深是浅其实由壁纸决定:深色壁纸上系统会把自带图标和文字
+//  转成白色,而 app 的 effectiveAppearance 照样是「亮色」,labelColor 于是解析成黑色 ——
+//  黑字画在深底上,紧挨着系统自己的白字,谁也看不清。用户报的「亮色主题下变黑」
+//  就是这个错位,**不是系统反色**。所以外观由调用方从状态栏所处的环境取、一路传进来,
+//  明暗主题 × 深浅壁纸四种组合各自成立,点开时那层浅色高亮底同理。
+//
 //  版式:图形 + 两行文字
 //    主行 = 数量(剩余百分比)
 //    副行 = 速率(正常/偏快),算不出速率时退回显示剩余金额
@@ -33,6 +40,9 @@ enum MenuBarStyle: String, CaseIterable, Identifiable {
 private extension QuotaStatus {
     /// 正常态用 labelColor —— 跟菜单栏前景色一致,和蓝色的时间环拉开区分;
     /// 只有需要提醒时才上橙/红。
+    ///
+    /// 「跟菜单栏前景色一致」以按**菜单栏的**外观解析为前提(见文件头)。
+    /// 按 app 的外观解析时这句话就不成立了,而它恰恰是本图标唯一的中性色来源。
     var nsColor: NSColor {
         switch self {
         case .normal:   return .labelColor
@@ -80,11 +90,15 @@ enum MenuBarIcon {
     ///   - gauge: nil 表示未配置 / 离线 / 加载中,此时只画文字
     ///   - value: 主行文字(剩余百分比)
     ///   - caption: 副行文字。为空时只画一行。
-    static func image(gauge: Gauge?,
+    ///   - appearance: **菜单栏所处的**外观,不是 app 的 —— 两者在亮色主题下经常不一致,
+    ///     理由见文件头。这个参数必须由调用方从状态栏的环境里取,
+    ///     不能在这里图省事回头读 `NSApplication.shared.effectiveAppearance`。
+    static func image(gauge: QuotaBucket?,
                       now: Date,
                       style: MenuBarStyle,
                       value: String,
-                      caption: String) -> NSImage {
+                      caption: String,
+                      appearance: NSAppearance) -> NSImage {
 
         let status = gauge?.status(now: now) ?? .normal
         let isOverPace = gauge?.pace(now: now).isOverPace ?? false
@@ -102,8 +116,8 @@ enum MenuBarIcon {
         let width = ceil(iconWidth + textWidth)
 
         let image = NSImage(size: NSSize(width: width, height: height), flipped: false) { _ in
-            // 强制按当前有效外观解析动态颜色,否则明暗变体可能取错
-            NSApplication.shared.effectiveAppearance.performAsCurrentDrawingAppearance {
+            // 在菜单栏的外观下解析动态颜色。这里换成 app 的外观就是那个 bug 本身。
+            appearance.performAsCurrentDrawingAppearance {
                 if let gauge {
                     let box = NSRect(x: 0, y: (height - iconSize) / 2,
                                      width: iconSize, height: iconSize)
@@ -154,7 +168,7 @@ enum MenuBarIcon {
 
     /// 外环 = 剩余额度,内环 = 剩余时间。
     /// 拿不到重置时间就**只画外环** —— 没有的数据不编。
-    private static func drawRings(gauge: Gauge, now: Date, in box: NSRect, color: NSColor) {
+    private static func drawRings(gauge: QuotaBucket, now: Date, in box: NSRect, color: NSColor) {
         let center = NSPoint(x: box.midX, y: box.midY)
 
         ring(center: center, radius: outerRingRadius, width: outerRingWidth,
@@ -196,7 +210,7 @@ enum MenuBarIcon {
 
     /// 上面粗的是剩余额度,下面细的是剩余时间(没有窗口就只有一根)。
     /// 细条同样取粗条的 0.618,和双环用同一个比例。
-    private static func drawBars(gauge: Gauge, now: Date, in box: NSRect, color: NSColor) {
+    private static func drawBars(gauge: QuotaBucket, now: Date, in box: NSRect, color: NSColor) {
         let thin = barHeight * innerRatio
 
         guard let window = gauge.window else {

@@ -206,6 +206,7 @@ let allSuites: [TestSuite] = [
         ("testSkippedSamplesDoNotCorruptSegmentNumbering", { HistoricalLimitTests().testSkippedSamplesDoNotCorruptSegmentNumbering() }),
         ("testChangingOnlyTheLimitIsNotAUsageChange", { HistoricalLimitTests().testChangingOnlyTheLimitIsNotAUsageChange() }),
         ("testAnEmptyCurveDoesNotRevealWhyItIsEmpty", { HistoricalLimitTests().testAnEmptyCurveDoesNotRevealWhyItIsEmpty() }),
+        ("testAPartialCurveDoesNotRevealWhatItSkipped", { HistoricalLimitTests().testAPartialCurveDoesNotRevealWhatItSkipped() }),
     ]),
 
     ("SchemaMigrationTests", [
@@ -320,6 +321,8 @@ let allSuites: [TestSuite] = [
         ("testAutoPicksTightestExcludingWindow", { MenuBarSourceTests().testAutoPicksTightestExcludingWindow() }),
         ("testWindowIsNormallyIgnoredEvenWhenItIsTheTightest", { MenuBarSourceTests().testWindowIsNormallyIgnoredEvenWhenItIsTheTightest() }),
         ("testCriticalWindowTakesOver", { MenuBarSourceTests().testCriticalWindowTakesOver() }),
+        ("testALongCycleIsNotAvoidedEvenThoughItHasAWindow",
+         { MenuBarSourceTests().testALongCycleIsNotAvoidedEvenThoughItHasAWindow() }),
         ("testFixedSelectionIsHonoured", { MenuBarSourceTests().testFixedSelectionIsHonoured() }),
         ("testFixedSelectionFallsBackWhenUnlimited", { MenuBarSourceTests().testFixedSelectionFallsBackWhenUnlimited() }),
     ]),

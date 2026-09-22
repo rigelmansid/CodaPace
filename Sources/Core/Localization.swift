@@ -94,6 +94,7 @@ public enum LangKey: String, CaseIterable {
     case historyLimitFormat, historyNoLimit
     case historyRangeHoursFormat, historyRangeDaysFormat
     case historyNoLimitMessage, historyNoSamplesMessage, historyNoTokensMessage
+    case historyNoPercentageCountFormat
     case historyAboutTitle, historyNote1, historyNote2, historyNote3, historyNote4
     case historyTokensTotalFormat, historyTokensByDay
 
@@ -310,6 +311,13 @@ public enum L10n {
             .zhHans: "这段时间还没有采样。历史是从 app 装上那天开始攒的。",
             .zhHant: "這段時間還沒有取樣。歷史是從 app 安裝當天開始累積的。",
             .en: "No samples in this range. History starts accumulating the day you install the app."],
+        // 曲线**画得出来、但只画出了一部分**时说这一句(OPT-012)。
+        // 成因和上面那条一样有两种,同样不挑一个说 —— 多数情况是老记录,
+        // 但「多数」不是「全部」,按多数写死就是在断言我们并不知道的事。
+        .historyNoPercentageCountFormat: [
+            .zhHans: "另有 %@ 条采样画不出剩余百分比,没有出现在曲线上 —— 当时没有设上限,或是升级前的老记录没有记下当时的上限。",
+            .zhHant: "另有 %@ 筆取樣畫不出剩餘百分比,沒有出現在曲線上 —— 當時沒有設上限,或是升級前的舊紀錄沒有記下當時的上限。",
+            .en: "Another %@ samples can’t be turned into a percentage and are absent from the curve — either there was no limit at the time, or they predate the upgrade that started recording limits."],
         .historyNoTokensMessage: [
             .zhHans: "还没有按天数据。至少要连续运行两次刷新才会产生第一条增量。",
             .zhHant: "還沒有按日資料。至少要連續執行兩次更新才會產生第一筆增量。",

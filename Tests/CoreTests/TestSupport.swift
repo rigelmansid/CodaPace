@@ -173,3 +173,4 @@ enum TinyTestRunner {
         return failedCases.isEmpty ? 0 : 1
     }
 }
+

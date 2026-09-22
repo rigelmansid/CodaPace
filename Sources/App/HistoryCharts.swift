@@ -52,6 +52,21 @@ final class HistoryModel: ObservableObject {
     /// 就必须有这第二个信号。
     @Published private(set) var quotaSamplesInRange = 0
 
+    /// 范围内**画不出百分比、因而没能上图**的采样条数(OPT-012)。
+    ///
+    /// 上面那个信号只在曲线**完全为空**时才用得上,于是漏掉了第三种情形:
+    /// 一部分画得出、一部分画不出。只要有一个点能画,曲线就照画,那些被跳过的
+    /// 采样既不在线上也不在任何一句文案里 —— 用户看到一张几乎空白的图,
+    /// 却得不到任何解释,只能自己去排查一个并不存在的问题。
+    ///
+    /// 这正是 OPT-008 之后老用户必然经历的一段:升级前的采样没记过当时的上限,
+    /// 在新采样填满窗口之前,长窗口里必然是「少量画得出 + 大量画不出」。
+    ///
+    /// 刻意**不区分**是「当时不限额」还是「老记录没记上限」:两者都是真实成因,
+    /// 挑一个说出来就是在断言我们并不知道的事。文案沿用 `historyNoLimitMessage`
+    /// 已确立的口径 —— 两种可能都摆出来。
+    @Published private(set) var quotaSamplesWithoutPercentage = 0
+
     /// - Parameters:
     ///   - kind: 要画哪条额度
     ///   - rule: 该额度的重置规则。用来把历史上每次重置的确切时刻按其自身算法推出来。
@@ -72,6 +87,10 @@ final class HistoryModel: ObservableObject {
         // 重置边界和「是否跨过重置」都由这条规则算,不会两处不一致。
         // 规则算不出周期(滑动窗口、未知)时,退回「计数器下降」这条补充证据。
         quotaPoints = QuotaSeriesBuilder.build(samples: samples, kind: kind, rule: rule)
+
+        // 差额即被跳过的条数。算式在这里落成一个有名字的信号,而不是留给视图现减 ——
+        // 光看 `总数 − 点数` 看不出它在回答什么问题,下一个人很容易当冗余删掉。
+        quotaSamplesWithoutPercentage = max(0, samples.count - quotaPoints.count)
 
         quotaConnectors = QuotaSeriesBuilder.connectors(samples: samples,
                                                         kind: kind,

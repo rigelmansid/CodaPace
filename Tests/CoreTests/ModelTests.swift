@@ -307,7 +307,19 @@ final class MenuBarSourceTests: XCTestCase {
 
     private let now = Date(timeIntervalSince1970: 1_788_800_000)
 
-    private func snapshot(total: Gauge, daily: Gauge, weekly: Gauge, window: Gauge) -> Snapshot {
+    /// 限流窗口那条。**必须带一个真实的短周期。**
+    ///
+    /// 「自动模式要不要避开它」的判据已经从「这条额度叫 window」换成了
+    /// 「周期短于 6 小时」(EXT-001)—— 额度名是供应商的事,通用层不该认识
+    /// 任何一条具体额度的名字。所以不给窗口就判不出它是高频的,
+    /// 下面几例也就测不到它们本来要测的东西。
+    private func rateLimitBucket(used: Double, limit: Double) -> QuotaBucket {
+        bucket("window", used: used, limit: limit,
+               window: TimeWindow(start: now.addingTimeInterval(-1800),
+                                  end: now.addingTimeInterval(1800)))
+    }
+
+    private func snapshot(total: QuotaBucket, daily: QuotaBucket, weekly: QuotaBucket, window: QuotaBucket) -> Snapshot {
         Snapshot(name: "eva", isActive: true,
                  gauges: [total, daily, weekly, window],
                  totalCost: 0, totalRequests: 0, totalTokens: 0,
@@ -317,54 +329,77 @@ final class MenuBarSourceTests: XCTestCase {
     /// 自动模式取最紧张的一条,但要排除每小时重置的限流窗口
     func testAutoPicksTightestExcludingWindow() {
         let snap = snapshot(
-            total:  Gauge(kind: .total, used: 2432, limit: 3000),        // 剩 19%
-            daily:  Gauge(kind: .daily, used: 3.8, limit: 70),           // 剩 95%
-            weekly: Gauge(kind: .weeklyOpus, used: 11, limit: 500),      // 剩 98%
-            window: Gauge(kind: .window, used: 10, limit: 20)            // 剩 50%
+            total:  bucket("total", used: 2432, limit: 3000),        // 剩 19%
+            daily:  bucket("daily", used: 3.8, limit: 70),           // 剩 95%
+            weekly: bucket("weeklyOpus", used: 11, limit: 500),      // 剩 98%
+            window: rateLimitBucket(used: 10, limit: 20)            // 剩 50%
         )
-        XCTAssertEqual(snap.menuBarGauge(source: .auto)?.kind, .total)
+        XCTAssertEqual(snap.menuBarGauge(source: .auto)?.id, "total")
     }
 
     func testWindowIsNormallyIgnoredEvenWhenItIsTheTightest() {
         let snap = snapshot(
-            total:  Gauge(kind: .total, used: 100, limit: 3000),         // 剩 97%
-            daily:  Gauge(kind: .daily, used: 20, limit: 70),            // 剩 71%
-            weekly: Gauge(kind: .weeklyOpus, used: 11, limit: 500),
-            window: Gauge(kind: .window, used: 8, limit: 20)             // 剩 60%,比 daily 高
+            total:  bucket("total", used: 100, limit: 3000),         // 剩 97%
+            daily:  bucket("daily", used: 20, limit: 70),            // 剩 71%
+            weekly: bucket("weeklyOpus", used: 11, limit: 500),
+            window: rateLimitBucket(used: 8, limit: 20)             // 剩 60%,比 daily 高
         )
-        XCTAssertEqual(snap.menuBarGauge(source: .auto)?.kind, .daily)
+        XCTAssertEqual(snap.menuBarGauge(source: .auto)?.id, "daily")
     }
 
     /// 例外:限流窗口快满了,马上要被限流,该顶上来
     func testCriticalWindowTakesOver() {
         let snap = snapshot(
-            total:  Gauge(kind: .total, used: 100, limit: 3000),
-            daily:  Gauge(kind: .daily, used: 20, limit: 70),
-            weekly: Gauge(kind: .weeklyOpus, used: 11, limit: 500),
-            window: Gauge(kind: .window, used: 19, limit: 20)            // 剩 5%
+            total:  bucket("total", used: 100, limit: 3000),
+            daily:  bucket("daily", used: 20, limit: 70),
+            weekly: bucket("weeklyOpus", used: 11, limit: 500),
+            window: rateLimitBucket(used: 19, limit: 20)            // 剩 5%
         )
-        XCTAssertEqual(snap.menuBarGauge(source: .auto)?.kind, .window)
+        XCTAssertEqual(snap.menuBarGauge(source: .auto)?.id, "window")
+    }
+
+    /// 被避开的理由是**周期短**,不是「这条额度叫 window」(EXT-001)。
+    ///
+    /// 上一例说明短周期会被避开;这一例说明长周期不会 —— 两条合起来才说清判据。
+    /// 少了这一例,把规则退化成「凡是有窗口的都避开」也照样全绿,
+    /// 而那会让菜单栏永远显示不出日额度。
+    ///
+    /// **daily 的剩余必须留在危险线以上**(这里 43%):
+    /// 低于 20% 的话,它会走「高频且吃紧就顶上来」那条分支而同样被返回,
+    /// 于是两条路径给出同一个答案,缺陷就藏住了 —— 初版就栽在这儿,
+    /// 注入「有窗口即高频」时本例照样通过。
+    func testALongCycleIsNotAvoidedEvenThoughItHasAWindow() {
+        let wholeDay = TimeWindow(start: now.addingTimeInterval(-3600),
+                                  end: now.addingTimeInterval(23 * 3600))
+        let snap = snapshot(
+            total:  bucket("total", used: 100, limit: 3000),               // 剩 97%
+            daily:  bucket("daily", used: 40, limit: 70, window: wholeDay), // 剩 43%,周期 24 小时
+            weekly: bucket("weeklyOpus", used: 11, limit: 500),            // 剩 98%
+            window: rateLimitBucket(used: 10, limit: 20)                   // 剩 50%,不吃紧
+        )
+        // 三条非高频的里面 daily 最紧张 —— 长周期不该被避开
+        XCTAssertEqual(snap.menuBarGauge(source: .auto)?.id, "daily")
     }
 
     func testFixedSelectionIsHonoured() {
         let snap = snapshot(
-            total:  Gauge(kind: .total, used: 2432, limit: 3000),
-            daily:  Gauge(kind: .daily, used: 3.8, limit: 70),
-            weekly: Gauge(kind: .weeklyOpus, used: 11, limit: 500),
-            window: Gauge(kind: .window, used: 10, limit: 20)
+            total:  bucket("total", used: 2432, limit: 3000),
+            daily:  bucket("daily", used: 3.8, limit: 70),
+            weekly: bucket("weeklyOpus", used: 11, limit: 500),
+            window: rateLimitBucket(used: 10, limit: 20)
         )
-        XCTAssertEqual(snap.menuBarGauge(source: .fixed(.weeklyOpus))?.kind, .weeklyOpus)
+        XCTAssertEqual(snap.menuBarGauge(source: .fixed(bucketID: "weeklyOpus"))?.id, "weeklyOpus")
     }
 
     /// 选中的那条没有上限时,退回自动
     func testFixedSelectionFallsBackWhenUnlimited() {
         let snap = snapshot(
-            total:  Gauge(kind: .total, used: 2432, limit: 3000),
-            daily:  Gauge(kind: .daily, used: 3.8, limit: 0),            // 不限
-            weekly: Gauge(kind: .weeklyOpus, used: 11, limit: 500),
-            window: Gauge(kind: .window, used: 10, limit: 20)
+            total:  bucket("total", used: 2432, limit: 3000),
+            daily:  bucket("daily", used: 3.8, limit: 0),            // 不限
+            weekly: bucket("weeklyOpus", used: 11, limit: 500),
+            window: rateLimitBucket(used: 10, limit: 20)
         )
-        XCTAssertEqual(snap.menuBarGauge(source: .fixed(.daily))?.kind, .total)
+        XCTAssertEqual(snap.menuBarGauge(source: .fixed(bucketID: "daily"))?.id, "total")
     }
 }
 
@@ -387,8 +422,8 @@ final class RelaySnapshotMappingTests: XCTestCase {
             now: Date(timeIntervalSince1970: 1_788_800_000)
         )
 
-        XCTAssertEqual(snap.gauges.map(\.kind), [.total, .daily, .weeklyOpus, .window])
-        XCTAssertEqual(snap.gauge(.total)?.remaining ?? -1, 3000 - 2432.69, accuracy: 0.01)
+        XCTAssertEqual(snap.gauges.map(\.id), ["total", "daily", "weeklyOpus", "window"])
+        XCTAssertEqual(snap.bucket(id: "total")?.remaining ?? -1, 3000 - 2432.69, accuracy: 0.01)
     }
 
     /// 总额度没有重置周期,不应被安上时间窗口
@@ -397,7 +432,7 @@ final class RelaySnapshotMappingTests: XCTestCase {
             stats: UserStats(), monthly: nil,
             schedule: ResetSchedule(), now: Date()
         )
-        XCTAssertNil(snap.gauge(.total)?.window)
+        XCTAssertNil(snap.bucket(id: "total")?.window)
     }
 
     func testEmptyNameFallsBackToPlaceholder() {

@@ -45,10 +45,20 @@ struct HistoryView: View {
     @State private var kind: QuotaKind = .daily
     @State private var days: Int = 7
 
+    /// 当前所选额度对应的桶。
+    ///
+    /// ⚠︎ EXT-001 阶段 1 的**临时桥接**:展示侧已经是任意多个额度桶,而历史层
+    /// 还按固定四项分列,所以这里拿 `kind.rawValue` 当桶 ID 回头去取。
+    /// 能对上全靠中转站的桶 ID 取值等于旧枚举的 rawValue —— 阶段 2 把历史改成
+    /// 按桶存之后,`kind` 本身就换成桶 ID,这个函数连同 `QuotaKind` 一起消失。
+    private var selectedBucket: QuotaBucket? {
+        service.snapshot?.bucket(id: kind.rawValue)
+    }
+
     /// 当前所选额度的上限。**只用于标题那行的「上限 $x」**,是此刻的配置,
     /// 不参与绘图 —— 曲线上每个点用的是它自己那条采样当时的上限。
     private var limit: Double {
-        service.snapshot?.gauge(kind)?.limit ?? 0
+        selectedBucket?.limit ?? 0
     }
 
     var body: some View {
@@ -79,7 +89,7 @@ struct HistoryView: View {
 
     private func reload() {
         model.reload(kind: kind,
-                     rule: service.snapshot?.gauge(kind)?.rule,
+                     rule: selectedBucket?.rule,
                      quotaDays: days,
                      tokenDays: days)
     }
@@ -134,6 +144,18 @@ struct HistoryView: View {
                            gaps: model.gaps,
                            showsAxes: true)
                     .frame(height: 200)
+
+                // 曲线画得出来,不代表它画全了(OPT-012)。
+                // 被跳过的采样在图上没有任何痕迹 —— 既不是空档(那段确实采到了),
+                // 也不是断线,就是单纯地不存在。不说一句,用户看到一张几乎空白的图
+                // 只会去查 app 是不是没在跑,而真正的原因是那些采样不带上限。
+                if model.quotaSamplesWithoutPercentage > 0 {
+                    Text(l10n.f(.historyNoPercentageCountFormat,
+                                Fmt.int(model.quotaSamplesWithoutPercentage)))
+                        .font(.system(size: 10))
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
             } else if model.quotaSamplesInRange > 0 {
                 // 有采样,但没有一条算得出百分比 —— 和「根本没采样」是两回事,
                 // 说错了用户会去找一段并不存在的空档

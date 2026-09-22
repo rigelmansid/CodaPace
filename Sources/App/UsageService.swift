@@ -168,7 +168,7 @@ final class UsageService: ObservableObject {
     // MARK: 派生显示
 
     /// 菜单栏该显示的那条额度
-    var menuBarGauge: Gauge? {
+    var menuBarGauge: QuotaBucket? {
         snapshot?.menuBarGauge(source: menuBarSource)
     }
 
@@ -185,8 +185,12 @@ final class UsageService: ObservableObject {
         if let gauge = menuBarGauge {
             return Fmt.percent(gauge.remainingRatio)
         }
-        // 一条有上限的额度都没有 —— 百分比无从谈起,退回显示今日已用金额
-        return Fmt.money(snapshot.gauge(.daily)?.used ?? 0)
+        // 一条有上限的额度都没有 —— 百分比无从谈起,退回显示用量本身。
+        //
+        // 取**第一条**(顺序由适配器定),不点名「今日」:那是中转站的概念,
+        // 通用层不该认识任何一条具体额度的名字(不变量 6)。
+        guard let first = snapshot.gauges.first else { return "…" }
+        return first.unit.compactAmount(first.used)
     }
 
     /// 副行:补上主行没有的那个维度。
@@ -199,17 +203,21 @@ final class UsageService: ObservableObject {
 
         let pace = gauge.pace(now: now)
         if case .unavailable = pace {
-            return Fmt.money(gauge.remaining)
+            return gauge.unit.compactAmount(gauge.remaining)
         }
         return pace.label(Localization.shared.language)
     }
 
-    /// 菜单栏最终呈现的那张图(图形 + 两行文字一起画)
-    var menuBarImage: NSImage {
+    /// 菜单栏最终呈现的那张图(图形 + 两行文字一起画)。
+    ///
+    /// 外观**必须由调用方给**:要的是状态栏那一处的明暗,而 service 站在 app 这一侧,
+    /// 自己去取只能取到 app 的主题设置 —— 那正是 EXT-008 修掉的那个错位。
+    func menuBarImage(in appearance: NSAppearance) -> NSImage {
         MenuBarIcon.image(gauge: menuBarGauge,
                           now: now,
                           style: menuBarStyle,
                           value: menuBarValue,
-                          caption: menuBarCaption)
+                          caption: menuBarCaption,
+                          appearance: appearance)
     }
 }

@@ -112,18 +112,30 @@ public extension Sample {
     /// 「当时花了多少、当时的上限是多少」这个事实 —— 画百分比时用采样自己那条,
     /// 不是用当前上限,否则等于把过去按今天重写一遍。
     init(_ snapshot: Snapshot) {
+        // ⚠︎ EXT-001 阶段 1 的**临时桥接**,阶段 2 连同 QuotaKind 一起删。
+        //
+        // 展示侧已经换成了任意多个额度桶,而历史存储这一层还是四个固定列,
+        // 所以这里要按固定的四个 ID 回头去取。桥接能成立,全靠中转站的桶 ID
+        // 取值等于旧枚举的 rawValue —— 也正因如此,它只对中转站有效:
+        // 别家供应商(tu-zi 报的是日/周/月)从这里出去会四条全空。
+        //
+        // 所以阶段 2 之前**不要接第二个适配器**,顺序不能调换。
+        func bucket(_ kind: QuotaKind) -> QuotaBucket? {
+            snapshot.bucket(id: kind.rawValue)
+        }
+
         self.init(
             at: snapshot.fetchedAt,
-            totalCost: snapshot.gauge(.total)?.used ?? 0,
-            dailyCost: snapshot.gauge(.daily)?.used ?? 0,
-            weeklyOpusCost: snapshot.gauge(.weeklyOpus)?.used ?? 0,
-            windowCost: snapshot.gauge(.window)?.used ?? 0,
+            totalCost: bucket(.total)?.used ?? 0,
+            dailyCost: bucket(.daily)?.used ?? 0,
+            weeklyOpusCost: bucket(.weeklyOpus)?.used ?? 0,
+            windowCost: bucket(.window)?.used ?? 0,
             allTokens: snapshot.totalTokens,
             requests: snapshot.totalRequests,
-            limits: QuotaLimits(total: snapshot.gauge(.total)?.limit ?? 0,
-                                daily: snapshot.gauge(.daily)?.limit ?? 0,
-                                weeklyOpus: snapshot.gauge(.weeklyOpus)?.limit ?? 0,
-                                window: snapshot.gauge(.window)?.limit ?? 0)
+            limits: QuotaLimits(total: bucket(.total)?.limit ?? 0,
+                                daily: bucket(.daily)?.limit ?? 0,
+                                weeklyOpus: bucket(.weeklyOpus)?.limit ?? 0,
+                                window: bucket(.window)?.limit ?? 0)
         )
     }
 }

@@ -56,7 +56,7 @@ struct Bar: View {
 // MARK: - 一条额度
 
 struct GaugeRow: View {
-    let gauge: Gauge
+    let gauge: QuotaBucket
     let now: Date
     @ObservedObject private var l10n = Localization.shared
 
@@ -374,7 +374,12 @@ struct PopoverView: View {
 
     private func reloadHistory() {
         let gauge = service.menuBarGauge
-        history.reload(kind: gauge?.kind ?? .daily,
+        // ⚠︎ EXT-001 阶段 1 的**临时桥接**:历史层还按固定四项分列,
+        // 所以要把桶 ID 转回 QuotaKind。能对上全靠中转站的桶 ID 取值
+        // 等于旧枚举的 rawValue —— 别家供应商的桶在这里会转不出来,
+        // 退回日额度。阶段 2 把历史改成按桶存之后,这一段连同 QuotaKind 一起删。
+        let kind = gauge.flatMap { QuotaKind(rawValue: $0.id) } ?? .daily
+        history.reload(kind: kind,
                        rule: gauge?.rule,
                        quotaDays: 1,
                        tokenDays: 30)
@@ -407,10 +412,14 @@ struct PopoverView: View {
                     groupHeader(l10n.t(.groupDisplay))
 
                     settingRow(l10n.t(.rowMenuBarSource)) {
+                        // 候选来自**当前快照实际有哪些额度**,不再是固定四项(EXT-001)——
+                        // 供应商各报各的,枚举装不下。离线或还没拉到时列表为空,
+                        // 此时只剩「自动」可选,而那本来就是拿不到额度时唯一说得通的选项。
                         Picker("", selection: $service.menuBarSource) {
                             Text(l10n.t(.sourceAuto)).tag(MenuBarSource.auto)
-                            ForEach(QuotaKind.allCases, id: \.self) { kind in
-                                Text(kind.label(l10n.language)).tag(MenuBarSource.fixed(kind))
+                            ForEach(service.snapshot?.gauges ?? [], id: \.id) { bucket in
+                                Text(bucket.label(l10n.language))
+                                    .tag(MenuBarSource.fixed(bucketID: bucket.id))
                             }
                         }
                         .labelsHidden()
