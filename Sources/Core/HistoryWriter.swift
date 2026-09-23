@@ -118,8 +118,17 @@ public extension Sample {
     init(_ snapshot: Snapshot) {
         self.init(
             at: snapshot.fetchedAt,
-            allTokens: snapshot.totalTokens,
-            requests: snapshot.totalRequests,
+            // ⚠︎ 供应商不报累计值时这里退成 0,而库里那一列是非可选的。
+            //
+            // 眼下不会骗到任何人:两条相邻采样都是 0,`TokenDelta.between` 因
+            // 「增量不大于 0」返回 nil,于是一条 token 记录都不会写,柱状图空着,
+            // 面板那一行也整行不显示(见 `Snapshot.totalTokens`)。
+            //
+            // 但库里躺着的确实是 0 而不是「未知」。哪天要加「累计 token 趋势」,
+            // 得先把 Sample 的这两列也改成可选 —— 那是和阶段 2 同量级的改动,
+            // 在有真实需求之前不做。
+            allTokens: snapshot.totalTokens ?? 0,
+            requests: snapshot.totalRequests ?? 0,
             // 适配器万一把两条额度写成同一个 ID,取先声明的那条 ——
             // 历史落盘不该因为一条额度声明有误就整个停摆(uniqueKeysWithValues 会崩)。
             quotas: Dictionary(

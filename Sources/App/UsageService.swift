@@ -96,9 +96,11 @@ final class UsageService: ObservableObject {
     ///
     /// 在飞的旧刷新**不需要**在这里取消 —— 它回来时过不了提交前的身份校验,会自己作废。
     /// 而它也挡不住下面这次刷新:`RefreshGate` 按账户判断重入,账户不同就放行。
-    func applyAccount(_ account: AccountIdentity) {
-        let changed = account != Config.account
-        Config.apply(account)
+    /// - Throws: 钥匙串写入失败。**必须往上抛** —— 吞掉的话设置窗口会关掉、
+    ///   界面显示已配置,而每次刷新都取不到密钥。
+    func applyAccount(_ connection: Connection) throws {
+        let changed = connection.account != Config.account
+        try Config.apply(connection)
 
         if changed {
             // 旧账户的数字不能挂在新账户的名字底下,哪怕只是新数据到达前的几百毫秒
@@ -134,8 +136,11 @@ final class UsageService: ObservableObject {
         do {
             // 协议细节全在适配器里:通用层只说「给这个账户拉一次用量」。
             // 新增供应商不该让这段流程长出任何分支 —— 那正是适配器边界存在的理由。
+            // 身份和密钥一次取齐,一路传到适配器 —— 中途不再回头读配置。
+            // 密钥也是身份的一部分:只定住身份而让适配器自己去取密钥,
+            // 换账户时同样会串(见 Connection)。
             let adapter = ProviderRegistry.adapter(for: account)
-            let built = try await adapter.fetchUsage(account,
+            let built = try await adapter.fetchUsage(Config.connection(for: account),
                                                      schedule: Config.schedule(for: account),
                                                      language: Config.language)
 

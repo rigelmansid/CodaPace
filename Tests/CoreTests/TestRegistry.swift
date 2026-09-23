@@ -65,6 +65,9 @@ let allSuites: [TestSuite] = [
         ("testDetectIgnoresTheDomain", { RelayProviderTests().testDetectIgnoresTheDomain() }),
         ("testDetectRejectsNonSense", { RelayProviderTests().testDetectRejectsNonSense() }),
         ("testParsesSchemeHostAndApiId", { RelayProviderTests().testParsesSchemeHostAndApiId() }),
+        ("testTheRelayConnectionCarriesNoSecret", { RelayProviderTests().testTheRelayConnectionCarriesNoSecret() }),
+        ("testTheRelayDoesNotNeedTheResponseToKnowItsAccountID", { RelayProviderTests().testTheRelayDoesNotNeedTheResponseToKnowItsAccountID() }),
+        ("testTheRelayNamesTheQuotaWhoseDailyResetMustBeLearned", { RelayProviderTests().testTheRelayNamesTheQuotaWhoseDailyResetMustBeLearned() }),
         ("testKeepsANonStandardPort", { RelayProviderTests().testKeepsANonStandardPort() }),
         ("testMissingOrEmptyApiIdDoesNotParse", { RelayProviderTests().testMissingOrEmptyApiIdDoesNotParse() }),
         ("testSurroundingWhitespaceIsTolerated", { RelayProviderTests().testSurroundingWhitespaceIsTolerated() }),
@@ -72,6 +75,60 @@ let allSuites: [TestSuite] = [
         ("testNoManagementURLWithoutAConfiguredAccount", { RelayProviderTests().testNoManagementURLWithoutAConfiguredAccount() }),
         ("testDeclaresWhatTheRelayActuallyProvides", { RelayProviderTests().testDeclaresWhatTheRelayActuallyProvides() }),
         ("testDeclaresTheTwoThingsTheRelayDoesNotProvide", { RelayProviderTests().testDeclaresTheTwoThingsTheRelayDoesNotProvide() }),
+    ]),
+
+    ("TuziDecodingTests", [
+        ("testAccountIDComesFromKeyID", { TuziDecodingTests().testAccountIDComesFromKeyID() }),
+        ("testDecodesTheThreeWindows", { TuziDecodingTests().testDecodesTheThreeWindows() }),
+        ("testParsesMicrosecondTimestampsWithOffset", { TuziDecodingTests().testParsesMicrosecondTimestampsWithOffset() }),
+        ("testAlsoParsesTimestampsWithoutFractionalSeconds", { TuziDecodingTests().testAlsoParsesTimestampsWithoutFractionalSeconds() }),
+        ("testNonZeroCodeSurfacesTheServerMessage", { TuziDecodingTests().testNonZeroCodeSurfacesTheServerMessage() }),
+        ("testNonNumericUsageIsRejectedByName", { TuziDecodingTests().testNonNumericUsageIsRejectedByName() }),
+        ("testGarbageResponseGivesAReadableError", { TuziDecodingTests().testGarbageResponseGivesAReadableError() }),
+    ]),
+
+    ("TuziSnapshotTests", [
+        ("testBuildsThreeBucketsInDisplayOrder", { TuziSnapshotTests().testBuildsThreeBucketsInDisplayOrder() }),
+        ("testAmountsCarryNoCurrencyBecauseTheProviderDeclaredNone", { TuziSnapshotTests().testAmountsCarryNoCurrencyBecauseTheProviderDeclaredNone() }),
+        ("testDoesNotClaimToProvideCostAmounts", { TuziSnapshotTests().testDoesNotClaimToProvideCostAmounts() }),
+        ("testDeclaresServerProvidedDailyReset", { TuziSnapshotTests().testDeclaresServerProvidedDailyReset() }),
+        ("testNeedsNoDailyResetLearning", { TuziSnapshotTests().testNeedsNoDailyResetLearning() }),
+        ("testDeclaresTheThingsItDoesNotProvide", { TuziSnapshotTests().testDeclaresTheThingsItDoesNotProvide() }),
+        ("testResetRuleIsServerProvidedAndNotExtrapolated", { TuziSnapshotTests().testResetRuleIsServerProvidedAndNotExtrapolated() }),
+        ("testWindowUsesTheExactTimestampsTheServerGave", { TuziSnapshotTests().testWindowUsesTheExactTimestampsTheServerGave() }),
+        ("testTheUnusedBillingPathProducesNoBuckets", { TuziSnapshotTests().testTheUnusedBillingPathProducesNoBuckets() }),
+        ("testTheFuelPackBalanceIsNotForcedIntoAQuotaBucket", { TuziSnapshotTests().testTheFuelPackBalanceIsNotForcedIntoAQuotaBucket() }),
+        ("testUnreportedTotalsAreNilNotZero", { TuziSnapshotTests().testUnreportedTotalsAreNilNotZero() }),
+        ("testMonthlyIsABucketNotADuplicatedSummary", { TuziSnapshotTests().testMonthlyIsABucketNotADuplicatedSummary() }),
+        ("testOverlappingWindowsAreBothShownAndNotSummed", { TuziSnapshotTests().testOverlappingWindowsAreBothShownAndNotSummed() }),
+        ("testTheSubscriptionNameBecomesTheAccountName", { TuziSnapshotTests().testTheSubscriptionNameBecomesTheAccountName() }),
+    ]),
+
+    ("TuziMissingDataTests", [
+        ("testAnUnreportedWindowProducesNoBucket", { TuziMissingDataTests().testAnUnreportedWindowProducesNoBucket() }),
+        ("testAHalfReportedWindowIsDroppedRatherThanGuessed", { TuziMissingDataTests().testAHalfReportedWindowIsDroppedRatherThanGuessed() }),
+        ("testANullLimitIsTreatedAsUnreported", { TuziMissingDataTests().testANullLimitIsTreatedAsUnreported() }),
+        ("testASubscriptionlessResponseIsNotComplete", { TuziMissingDataTests().testASubscriptionlessResponseIsNotComplete() }),
+        ("testAResponseWithQuotasIsComplete", { TuziMissingDataTests().testAResponseWithQuotasIsComplete() }),
+        ("testAnUnparsableTimestampCostsTheWindowNotTheQuota", { TuziMissingDataTests().testAnUnparsableTimestampCostsTheWindowNotTheQuota() }),
+    ]),
+
+    ("TuziConnectionTests", [
+        ("testParsesAnApiKeyIntoAConnectionCarryingTheSecret", { TuziConnectionTests().testParsesAnApiKeyIntoAConnectionCarryingTheSecret() }),
+        ("testTolerratesSurroundingWhitespace", { TuziConnectionTests().testTolerratesSurroundingWhitespace() }),
+        ("testRejectsThingsThatAreNotKeys", { TuziConnectionTests().testRejectsThingsThatAreNotKeys() }),
+        ("testTheParsedIdentityIsOnlyAPlaceholder", { TuziConnectionTests().testTheParsedIdentityIsOnlyAPlaceholder() }),
+        ("testAnApiKeyMayNotReusePlainTextStorage", { TuziConnectionTests().testAnApiKeyMayNotReusePlainTextStorage() }),
+        ("testTheTwoAdaptersDoNotClaimEachOthersInput", { TuziConnectionTests().testTheTwoAdaptersDoNotClaimEachOthersInput() }),
+        ("testTheConnectionDescriptionNeverLeaksTheSecret", { TuziConnectionTests().testTheConnectionDescriptionNeverLeaksTheSecret() }),
+    ]),
+
+    ("ResolvedForSavingTests", [
+        ("testAnUnverifiedSecretConnectionCannotBeSaved", { ResolvedForSavingTests().testAnUnverifiedSecretConnectionCannotBeSaved() }),
+        ("testVerificationReplacesThePlaceholderWithTheRealAccountID", { ResolvedForSavingTests().testVerificationReplacesThePlaceholderWithTheRealAccountID() }),
+        ("testAReportWithoutAnAccountIDDoesNotUnlockSaving", { ResolvedForSavingTests().testAReportWithoutAnAccountIDDoesNotUnlockSaving() }),
+        ("testAReportFromAnotherProviderIsNotAccepted", { ResolvedForSavingTests().testAReportFromAnotherProviderIsNotAccepted() }),
+        ("testTheRelayCanBeSavedWithoutVerifying", { ResolvedForSavingTests().testTheRelayCanBeSavedWithoutVerifying() }),
     ]),
 
     ("ProviderRegistryTests", [

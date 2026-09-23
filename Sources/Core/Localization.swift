@@ -66,6 +66,7 @@ public enum LangKey: String, CaseIterable {
 
     // 额度名称
     case sourceAuto, quotaTotal, quotaDaily, quotaWeeklyOpus, quotaWindow
+    case quotaWeekly, quotaMonthly
 
     // 菜单栏样式
     case styleRings, styleBar
@@ -99,7 +100,7 @@ public enum LangKey: String, CaseIterable {
     case historyTokensTotalFormat, historyTokensByDay
 
     // 配置窗口
-    case setupWindowTitle, setupTitle, setupDesc1, setupDesc2
+    case setupWindowTitle, setupTitle, setupDesc1
     case setupTest, setupSave, setupSupportedLink
     case setupWaiting, setupTesting
     case setupSuccessFormat, setupFailureFormat
@@ -115,6 +116,9 @@ public enum LangKey: String, CaseIterable {
 
     // 错误
     case errInvalidURLFormat, errHTTPFormat, errNoData, errUnparsable, errApiFailed
+    case errMissingCredential
+    case setupRevealSecret, setupHideSecret, setupMustTestFirst
+    case setupDescKey, setupSafetyIdentifier, setupSafetySecret
     case errInvalidFieldFormat
     case errHistoryStore
 }
@@ -193,6 +197,13 @@ public enum L10n {
             .zhHans: "本周 Opus", .zhHant: "本週 Opus", .en: "Weekly Opus"],
         .quotaWindow: [
             .zhHans: "限流窗口", .zhHant: "限流視窗", .en: "Rate limit window"],
+
+        // 通用的周期名。刻意**不带任何模型或产品名** —— 和「本周 Opus」不同,
+        // 这两条是给「就是一条周/月额度」的供应商用的,加限定词会说出对方没说过的事。
+        .quotaWeekly: [
+            .zhHans: "本周", .zhHant: "本週", .en: "This week"],
+        .quotaMonthly: [
+            .zhHans: "本月", .zhHant: "本月", .en: "This month"],
 
         // ── 菜单栏样式 ────────────────────────────────────
         .styleRings: [
@@ -351,23 +362,39 @@ public enum L10n {
             .zhHans: "设置 — CodaPace", .zhHant: "設定 — CodaPace",
             .en: "Settings — CodaPace"],
         .setupTitle: [
-            .zhHans: "粘贴你的用量统计页面网址", .zhHant: "貼上你的用量統計頁面網址",
-            .en: "Paste your usage-stats page URL"],
+            .zhHans: "粘贴用量统计页面网址,或 API Key",
+            .zhHant: "貼上用量統計頁面網址,或 API Key",
+            .en: "Paste a usage-stats URL, or an API key"],
+        // 还认不出是哪家时说的话 —— 两条路都提一句,不替用户假定他用的是哪家
         .setupDesc1: [
-            .zhHans: "在浏览器里打开中转站的用量统计页面,把地址栏的完整网址复制过来。",
-            .zhHant: "在瀏覽器裡開啟中轉站的用量統計頁面,把網址列的完整網址複製過來。",
-            .en: "Open your relay’s usage-stats page in a browser and copy the full URL from the address bar."],
-        .setupDesc2: [
+            .zhHans: "在浏览器里打开中转站的用量统计页面,把地址栏的完整网址复制过来;订阅制供应商则粘贴它给你的 API Key。",
+            .zhHant: "在瀏覽器裡開啟中轉站的用量統計頁面,把網址列的完整網址複製過來;訂閱制供應商則貼上它給你的 API Key。",
+            .en: "Open your relay’s usage-stats page and copy the full URL from the address bar — or, for a subscription provider, paste the API key it gave you."],
+        .setupDescKey: [
+            .zhHans: "粘贴这家供应商给你的 API Key。",
+            .zhHant: "貼上這家供應商給你的 API Key。",
+            .en: "Paste the API key this provider gave you."],
+
+        // ── 安全说明:**必须跟着凭据性质走** ──────────────────
+        //
+        // 从前这里只有一句「只能查看用量,不能发起请求」,那是中转站 apiId 的性质,
+        // 被当成了通用前提。接入带密钥的供应商之后,原样说下去就是在对着一把
+        // 能花钱的 key 做一个假的安全承诺 —— 比不说更糟。
+        .setupSafetyIdentifier: [
             .zhHans: "网址里的 apiId 只能查看用量,不能发起请求,也拿不到你的 API Key。",
             .zhHant: "網址裡的 apiId 只能檢視用量,不能發出請求,也拿不到你的 API Key。",
             .en: "The apiId in that URL can only read usage — it can’t make requests or reveal your API key."],
+        .setupSafetySecret: [
+            .zhHans: "这是一把能发起真实调用的密钥。它只存在本机钥匙串里,不会上传,也只用于查询你的额度。",
+            .zhHant: "這是一把能發出真實呼叫的金鑰。它只存在本機鑰匙圈裡,不會上傳,也只用於查詢你的額度。",
+            .en: "This key can make real API calls. It is stored only in your Mac’s Keychain, never uploaded, and is used only to read your quota."],
         .setupTest: [
             .zhHans: "测试连接", .zhHant: "測試連線", .en: "Test connection"],
         .setupSave: [
             .zhHans: "保存", .zhHant: "儲存", .en: "Save"],
         .setupSupportedLink: [
-            .zhHans: "这个 app 支持哪些中转站?", .zhHant: "這個 app 支援哪些中轉站?",
-            .en: "Which relays does this app support?"],
+            .zhHans: "这个 app 支持哪些服务?", .zhHant: "這個 app 支援哪些服務?",
+            .en: "Which services does this app support?"],
         .setupWaiting: [
             .zhHans: "等待输入", .zhHant: "等待輸入", .en: "Waiting for input"],
         .setupTesting: [
@@ -409,6 +436,21 @@ public enum L10n {
         .errApiFailed: [
             .zhHans: "接口返回失败,apiId 可能不正确", .zhHant: "介面回傳失敗,apiId 可能不正確",
             .en: "The API reported a failure — the apiId may be wrong"],
+        // 该带密钥的供应商没拿到密钥。多半是钥匙串里那条被删了(换过机器、
+        // 重装过系统),得让用户重新填一次,而不是对着一句「请求失败」猜。
+        .setupRevealSecret: [
+            .zhHans: "显示密钥", .zhHant: "顯示金鑰", .en: "Show the key"],
+        .setupHideSecret: [
+            .zhHans: "隐藏密钥", .zhHant: "隱藏金鑰", .en: "Hide the key"],
+        // 保存按钮灰着总得有个理由 —— 不说的话用户会以为是自己填错了
+        .setupMustTestFirst: [
+            .zhHans: "这家的账户标识在响应里,先「测试连接」才能保存",
+            .zhHant: "這家的帳戶識別在回應裡,先「測試連線」才能儲存",
+            .en: "This provider reports its account ID in the response — test the connection before saving"],
+        .errMissingCredential: [
+            .zhHans: "缺少密钥,请重新填写并测试连接",
+            .zhHant: "缺少金鑰,請重新填寫並測試連線",
+            .en: "The API key is missing — enter it again and test the connection"],
         .setupUnsupported: [
             .zhHans: "认不出这个网址对应的服务,请确认它是中转站的用量统计页面",
             .zhHant: "認不出這個網址對應的服務,請確認它是中轉站的用量統計頁面",

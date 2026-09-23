@@ -54,36 +54,66 @@ struct SettingsView: View {
     @State private var input: String = Config.consoleURL?.absoluteString ?? ""
     @State private var result: TestResult = .idle
 
+    /// 密钥默认遮起来。**刻意给一个「显示」开关** —— 粘贴错一个字符
+    /// 却看不见,只会对着一句「连接失败」反复试。
+    @State private var revealSecret = false
+
     /// 在飞的那次测试对应的是**哪一段输入**。
     /// 没有它就会出现:测试在飞时用户改了网址,旧结果回来照样写进界面,
     /// 于是显示「连接成功」,而那说的是上一个网址。
     @State private var probe = InFlightGate<String>()
 
-    /// 哪个适配器认这个网址,以及它解析出的连接身份。
-    /// 解析归适配器 —— 不同供应商的链接格式、路径前缀都不一样。
-    private var resolved: (adapter: UsageProviderAdapter, account: AccountIdentity)? {
+    /// 哪个适配器认这段输入,以及它解析出的连接。
+    ///
+    /// 解析归适配器 —— 「那段输入」是什么本来就因家而异:
+    /// 中转站要的是用量页面网址,tu-zi 要的是一把 key。
+    private var resolved: (adapter: UsageProviderAdapter, connection: Connection)? {
         ProviderRegistry.parse(input)
     }
 
-    private var parsed: AccountIdentity? { resolved?.account }
+    /// 输入里带的是密钥吗。决定输入框要不要遮,以及能不能不测试就保存。
+    private var carriesSecret: Bool {
+        resolved?.adapter.credentialSensitivity == .secret
+    }
+
+    /// 测试成功时的那份报告,否则 nil。
+    private var report: ConnectionReport? {
+        if case .success(let report) = result { return report }
+        return nil
+    }
+
+    /// **真正可以保存的那个连接。**
+    ///
+    /// 身份在响应里的适配器(tu-zi)必须先测试通过 —— 这里才换得出真身份,
+    /// 换不出来就是 nil,保存按钮不可用。编一个身份顶上会在真身份到手的那天
+    /// 把历史和偏好劈成两半,所以宁可多让用户点一下「测试连接」。
+    private var saveable: Connection? {
+        guard let resolved else { return nil }
+        return ProviderRegistry.resolvedForSaving(resolved.connection, report: report)
+    }
+
+    /// 解析得出来、但还差一次测试
+    private var needsVerification: Bool { resolved != nil && saveable == nil }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
             VStack(alignment: .leading, spacing: 5) {
                 Text(l10n.t(.setupTitle))
                     .font(.system(size: 14, weight: .semibold))
-                Text(l10n.t(.setupDesc1))
+                Text(l10n.t(carriesSecret ? .setupDescKey : .setupDesc1))
                     .font(.system(size: 11))
                     .foregroundStyle(.secondary)
-                Text(l10n.t(.setupDesc2))
+
+                // 安全说明**跟着凭据性质走**,不是一句写死的话。
+                // 中转站的 apiId 确实动不了钱,而一把 sk- key 能 ——
+                // 对后者照搬前者那句,就是做了一个假的安全承诺。
+                Text(l10n.t(carriesSecret ? .setupSafetySecret : .setupSafetyIdentifier))
                     .font(.system(size: 11))
                     .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
             }
 
-            TextField(ProviderRegistry.fallback.inputExample, text: $input)
-                .textFieldStyle(.roundedBorder)
-                .font(.system(size: 11, design: .monospaced))
-                .onChange(of: input) { _ in result = .idle }
+            inputField
 
             statusLine
 
@@ -91,21 +121,62 @@ struct SettingsView: View {
 
             HStack {
                 Link(l10n.t(.setupSupportedLink),
-                     destination: URL(string: "https://github.com/Wei-Shaw/claude-relay-service")!)
+                     destination: URL(string: "https://github.com/rigelmansid/CodaPace")!)
                     .font(.system(size: 10))
 
                 Spacer()
 
                 Button(l10n.t(.setupTest)) { test() }
-                    .disabled(parsed == nil || probe.isBusy)
+                    .disabled(resolved == nil || probe.isBusy)
 
                 Button(l10n.t(.setupSave)) { save() }
                     .keyboardShortcut(.defaultAction)
-                    .disabled(parsed == nil)
+                    .disabled(saveable == nil)
             }
         }
         .padding(20)
         .frame(width: 560, height: 260)
+    }
+
+    // MARK: 输入框
+
+    /// 带密钥时遮起来,配一个「显示」开关。
+    ///
+    /// 提示文案取**认出来那家**的示例,认不出来时退回兜底那家 ——
+    /// 通用层不该硬编码某一家的格式(不变量 6)。
+    @ViewBuilder
+    private var inputField: some View {
+        HStack(spacing: 6) {
+            Group {
+                if carriesSecret && !revealSecret {
+                    SecureField(placeholder, text: $input)
+                } else {
+                    TextField(placeholder, text: $input)
+                }
+            }
+            .textFieldStyle(.roundedBorder)
+            .font(.system(size: 11, design: .monospaced))
+            .onChange(of: input) { _ in
+                // 输入一变,上一次的测试结果就不再说明这段文字了。
+                // 对 tu-zi 这还顺带把保存按钮重新锁上 —— 正是要的行为。
+                result = .idle
+            }
+
+            if carriesSecret {
+                Button {
+                    revealSecret.toggle()
+                } label: {
+                    Image(systemName: revealSecret ? "eye.slash" : "eye")
+                        .font(.system(size: 11))
+                }
+                .buttonStyle(.borderless)
+                .help(l10n.t(revealSecret ? .setupHideSecret : .setupRevealSecret))
+            }
+        }
+    }
+
+    private var placeholder: String {
+        (resolved?.adapter ?? ProviderRegistry.fallback).inputExample
     }
 
     // MARK: 状态行
@@ -117,9 +188,18 @@ struct SettingsView: View {
             if input.isEmpty {
                 hint(l10n.t(.setupWaiting), color: .secondary)
             } else if let resolved {
-                // 只说「认出是哪家」,不说「能用」—— 那要等真请求跑通
-                hint(l10n.f(.setupRecognizedFormat, resolved.adapter.displayName),
-                     color: .secondary)
+                VStack(alignment: .leading, spacing: 3) {
+                    // 只说「认出是哪家」,不说「能用」—— 那要等真请求跑通
+                    hint(l10n.f(.setupRecognizedFormat, resolved.adapter.displayName),
+                         color: .secondary)
+
+                    // 保存按钮灰着总得有个理由。这家的账户标识在响应里,
+                    // 不测一次就没有身份可存 —— 说清楚,而不是让用户对着
+                    // 一个点不动的按钮猜自己哪里填错了。
+                    if needsVerification {
+                        hint(l10n.t(.setupMustTestFirst), color: .orange)
+                    }
+                }
             } else {
                 // 认不出来就如实说认不出来,不猜一个出来
                 hint(l10n.t(.setupUnsupported), color: .red)
@@ -181,7 +261,7 @@ struct SettingsView: View {
             defer { probe.finish(probed) }
             do {
                 // 只验连通性,这时还没学到任何重置规则,所以给一个默认 schedule
-                let report = try await resolved.adapter.verify(resolved.account,
+                let report = try await resolved.adapter.verify(resolved.connection,
                                                                language: l10n.language)
                 // 提交前校验:输入变了就整份丢掉 ——
                 // 否则界面会显示「连接成功」,而那说的是上一个网址
@@ -197,8 +277,14 @@ struct SettingsView: View {
     /// 切换账户的全部收尾都在 applyAccount 里 —— 落盘、清旧状态、重启定时器、立刻刷一次。
     /// 这里不再逐个字段写 Config:分开写会留下半个账户的中间态。
     private func save() {
-        guard let parsed else { return }
-        UsageService.shared.applyAccount(parsed)
-        SettingsWindow.shared.close()
+        guard let saveable else { return }
+        do {
+            try UsageService.shared.applyAccount(saveable)
+            SettingsWindow.shared.close()
+        } catch {
+            // 钥匙串写失败时**窗口不关**:关掉的话界面会显示已配置,
+            // 而每次刷新都取不到密钥,用户只看得到一句「请求失败」。
+            result = .failure(error.localizedDescription)
+        }
     }
 }

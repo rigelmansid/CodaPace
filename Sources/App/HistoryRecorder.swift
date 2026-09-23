@@ -60,17 +60,13 @@ final class HistoryRecorder {
     private func learnDailyReset(previous: Sample?, current: Sample, account: AccountIdentity) {
         guard let previous else { return }
 
-        // ⚠︎ 「daily」这个桶 ID 写死在通用层,是不变量 6 眼下仅剩的一处例外。
+        // 学哪条额度**由适配器说了算**,通用层不认识任何一条具体额度的名字。
         //
-        // 日重置学习本身就是为中转站存在的:它不报日额度的重置时刻,只能从
-        // 「计数器归零」这个事件里观测。而 tu-zi 每次都给 reset_at,走
-        // ResetPolicy.serverProvided,根本不需要学 —— 所以这不是一条通用能力,
-        // 是一条该挂在能力声明后面的供应商能力。阶段 3 接适配器时一并搬走,
-        // 这一阶段不顺手扩大改动面。
-        //
-        // 取不到这条桶就直接不学:没有观测就不该改写一个学出来的结论。
-        guard let previousDaily = previous.used("daily"),
-              let currentDaily = current.used("daily") else { return }
+        // 服务端自己就给重置时刻的供应商(tu-zi)返回 nil,整条跳过 ——
+        // 对着一个已知的事实去「观测学习」,学出来的只会比对方给的更差。
+        guard let bucketID = ProviderRegistry.adapter(for: account).learnableDailyBucketID,
+              let previousDaily = previous.used(bucketID),
+              let currentDaily = current.used(bucketID) else { return }
 
         // 时区是结论的一部分,所以观测和存储必须用同一个
         let timeZone = TimeZone.current

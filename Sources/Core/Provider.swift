@@ -54,6 +54,45 @@ public struct ProviderCapabilities: OptionSet, Equatable, Hashable {
     public static let monthlyAggregate    = ProviderCapabilities(rawValue: 1 << 7)
 }
 
+// MARK: - 连接
+
+/// 一次抓取要用到的全部东西:**身份 + 凭据**。
+///
+/// 凭据不从全局配置里读,而是由通用层取出来**显式传进适配器**。这条是不变量 2
+/// 的直接延伸:一次刷新横跨两个 await,中途回头读配置就会拿到用户刚换上的另一把 key,
+/// 于是 A 的密钥发往 B 的地址。身份定住了而凭据没定住,等于没定住。
+public struct Connection: Equatable {
+
+    public let account: AccountIdentity
+
+    /// 密钥。**nil 表示这个适配器不需要** —— 中转站的 apiId 本身就在 `account` 里,
+    /// 它是只读统计标识,不是密钥(见 `CredentialSensitivity`)。
+    ///
+    /// 取值由适配器声明的敏感度决定该从哪儿取:`.readOnlyIdentifier` 不需要,
+    /// `.secret` 从钥匙串取。通用层负责取,适配器负责用。
+    public let secret: String?
+
+    public init(account: AccountIdentity, secret: String? = nil) {
+        self.account = account
+        self.secret = secret
+    }
+
+    /// 换一个身份,凭据不动。tu-zi 那种「身份要等响应才知道」的适配器,
+    /// verify 跑完后拿真身份换掉占位身份时走这里。
+    public func with(account: AccountIdentity) -> Connection {
+        Connection(account: account, secret: secret)
+    }
+}
+
+extension Connection: CustomStringConvertible {
+    /// **密钥不进任何字符串**。错误信息、日志、断言失败都会走到这里,
+    /// 一旦原样带出去,一把能花钱的 key 就落在了崩溃报告或剪贴板里。
+    public var description: String {
+        "Connection(\(account.providerID) @ \(account.baseURL), apiId: \(account.apiId), "
+            + "secret: \(secret == nil ? "无" : "已设置"))"
+    }
+}
+
 // MARK: - 适配器
 
 public protocol UsageProviderAdapter {
@@ -79,8 +118,32 @@ public protocol UsageProviderAdapter {
     /// (自建中转站什么域名都有)。真正的确认要靠一次真实请求。
     func detect(_ input: String) -> Bool
 
-    /// 从用户粘贴的网址解析出连接身份。解析不出来就是 nil。
-    func parseConnection(_ input: String) -> AccountIdentity?
+    /// 账户标识是不是**只能从响应里拿到**。
+    ///
+    /// 中转站的 apiId 就写在用户粘贴的网址里,解析出来就是它。tu-zi 的输入是一把
+    /// `sk-` key,里面没有任何账户标识 —— 只有真拉一次接口,对方才会告诉我们 `key_id`。
+    ///
+    /// 为真时通用层**必须先 verify 再保存**(界面上体现为「没测试通过就不给保存」)。
+    /// 退而求其次地编一个(比如拿 key 的哈希顶上)看着能跑,代价是真身份到手的那天
+    /// 分区键会变 —— 等于把用户攒下的历史劈成两半。不发明数据同样适用于身份。
+    var accountIDComesFromResponse: Bool { get }
+
+    /// 哪条额度的日重置时刻需要 **app 自己观测**。nil 表示不需要。
+    ///
+    /// 日重置学习是一条**有供应商前提**的功能:中转站不报重置时刻,只能从
+    /// 「计数器归零」这个事件里观测出来;而 tu-zi 每次都给 `reset_at`
+    /// (能力声明里的 `.dailyResetTime`),没什么可学的。
+    ///
+    /// 由声明的一方说出是哪条额度,通用层就不必认识任何一条具体额度的名字
+    /// (不变量 6)。从前 `HistoryRecorder` 里写死的那个 "daily" 就是这么漏出去的:
+    /// 换一家供应商,它会去一个不存在的桶上学一个学不到的东西。
+    var learnableDailyBucketID: String? { get }
+
+    /// 从用户粘贴的那段文字解析出一个连接。解析不出来就是 nil。
+    ///
+    /// 「那段文字」是什么取决于适配器:中转站要的是用量页面网址,tu-zi 要的是一把 key。
+    /// 所以提示文案由 `inputExample` 给,通用层不该硬编码某一家的格式。
+    func parseConnection(_ input: String) -> Connection?
 
     /// 管理后台地址。由适配器构造 —— 它和统计接口不一定同源同路径,
     /// 所以不能在通用层硬编码一条统一路径。
@@ -88,13 +151,27 @@ public protocol UsageProviderAdapter {
 
     /// 拉一次用量。
     ///
+    /// - Parameter connection: 身份 + 凭据,**一次取齐**。适配器不读任何全局配置 ——
+    ///   见 `Connection` 的说明和不变量 2。
     /// - Parameter schedule: app 侧掌握的重置规则(含观测学来的日重置时刻)。
     ///   适配器把它和服务端给的时间信息合起来算出各额度的周期。
-    ///   EXT-004 会把它一般化成完整的重置策略,那之前先按现有形状传。
+    ///   服务端自己就给重置时刻的适配器(tu-zi)可以整个忽略它。
     /// - Note: `fetchedAt` 由适配器在**拿到数据之后**打点,所以它是数据到达的时刻,
     ///   而不是发起请求的时刻。
-    func fetchUsage(_ account: AccountIdentity, schedule: ResetSchedule,
+    func fetchUsage(_ connection: Connection, schedule: ResetSchedule,
                     language: Language) async throws -> Snapshot
+
+    /// 测试连接。默认实现跑一次真实抓取再据其结果生成报告;
+    /// 身份来自响应的适配器覆写它,好在同一次请求里把账户标识一并带出来。
+    func verify(_ connection: Connection, language: Language) async throws -> ConnectionReport
+}
+
+public extension UsageProviderAdapter {
+    /// 绝大多数适配器的身份来自用户输入本身,解析出来就是它
+    var accountIDComesFromResponse: Bool { false }
+
+    /// 默认不需要观测日重置 —— 需要的一方自己声明是哪条额度
+    var learnableDailyBucketID: String? { nil }
 }
 
 // MARK: - 注册表
@@ -106,7 +183,7 @@ public protocol UsageProviderAdapter {
 public enum ProviderRegistry {
 
     /// 已知适配器,按 detect 的尝试顺序排列
-    public static let all: [UsageProviderAdapter] = [RelayProvider()]
+    public static let all: [UsageProviderAdapter] = [RelayProvider(), TuziProvider()]
 
     /// 兜底适配器:存量配置里没有 providerID,一律按它算。
     public static var fallback: UsageProviderAdapter { RelayProvider() }
@@ -134,13 +211,13 @@ public enum ProviderRegistry {
                                using providerID: String? = nil) -> ProviderResolution {
         if let providerID {
             guard let adapter = adapter(id: providerID),
-                  let account = adapter.parseConnection(input)
+                  let connection = adapter.parseConnection(input)
             else { return .unsupported }
-            return .resolved(providerID: adapter.providerID, account: account)
+            return .resolved(providerID: adapter.providerID, connection: connection)
         }
 
-        guard let (adapter, account) = parse(input) else { return .unsupported }
-        return .resolved(providerID: adapter.providerID, account: account)
+        guard let (adapter, connection) = parse(input) else { return .unsupported }
+        return .resolved(providerID: adapter.providerID, connection: connection)
     }
 
     /// 这个连接能不能按现在的方式(UserDefaults 明文)保存。
@@ -149,15 +226,40 @@ public enum ProviderRegistry {
         adapter.credentialSensitivity == .readOnlyIdentifier
     }
 
+    /// 把一个刚解析出来的连接变成**可以保存**的连接。
+    ///
+    /// 绝大多数适配器的身份就在用户输入里,原样返回即可。身份来自响应的那些
+    /// (`accountIDComesFromResponse`)必须先跑过一次 verify —— 这里拿报告里的
+    /// `stableAccountID` 换掉占位身份。
+    ///
+    /// - Returns: nil 表示**还不能保存**。调用方据此不让保存,而不是随手编一个身份:
+    ///   分区键是历史和偏好的主键,编出来的那个会在真身份到手的那天把它们劈成两半。
+    public static func resolvedForSaving(_ connection: Connection,
+                                         report: ConnectionReport?) -> Connection? {
+        let adapter = adapter(for: connection.account)
+        guard adapter.accountIDComesFromResponse else { return connection }
+
+        // 报告得是**这次这个连接**的:换过供应商之后留在界面上的旧报告不算数
+        guard let report, report.providerID == connection.account.providerID,
+              let accountID = report.stableAccountID, !accountID.isEmpty,
+              accountID != AccountIdentity.unresolvedAccountID
+        else { return nil }
+
+        return connection.with(account: AccountIdentity(
+            providerID: connection.account.providerID,
+            baseURL: connection.account.baseURL,
+            apiId: accountID))
+    }
+
     /// 解析一个输入:返回第一个能解析出连接身份的适配器及其结果。
     ///
     /// `detect` 只决定**顺序**,不是门槛:认得的先试,其余的照样试一遍。
     /// 不该因为某个适配器的 detect 保守,就把一个其实能用的链接判死。
     public static func parse(_ input: String) -> (adapter: UsageProviderAdapter,
-                                                  account: AccountIdentity)? {
+                                                  connection: Connection)? {
         let ordered = candidates(for: input) + all.filter { !$0.detect(input) }
         for adapter in ordered {
-            if let account = adapter.parseConnection(input) { return (adapter, account) }
+            if let connection = adapter.parseConnection(input) { return (adapter, connection) }
         }
         return nil
     }
@@ -190,7 +292,7 @@ public enum CredentialSensitivity: String, Equatable {
 /// 猜一个出来会让用户对着「已识别」的假象排查半天,比直接说不支持更糟。
 public enum ProviderResolution: Equatable {
 
-    case resolved(providerID: String, account: AccountIdentity)
+    case resolved(providerID: String, connection: Connection)
 
     /// 没有适配器能从这段输入解析出连接身份
     case unsupported
@@ -207,6 +309,15 @@ public struct ConnectionReport: Equatable {
     /// 来自真实响应,不是从输入里猜的
     public let accountName: String
     public let isActive: Bool
+
+    /// 对方报的**账户标识**,来自这次真实响应。
+    ///
+    /// 只有 `accountIDComesFromResponse` 的适配器会给(tu-zi 的 `key_id`),其余是 nil。
+    /// 存在的理由是**让历史跨密钥轮换保持连续**:用户换一把 `sk-` key,对方报的
+    /// key_id 不变,历史分区键就不变。拿 key 本身做哈希的话,轮换一次历史就断一次。
+    ///
+    /// 展示名不能顶替它 —— 名字会改,而分区键一变,攒下的曲线就孤立了。
+    public let stableAccountID: String?
 
     public let capabilities: ProviderCapabilities
 
@@ -229,11 +340,13 @@ public struct ConnectionReport: Equatable {
 
     public init(providerID: String, displayName: String,
                 accountName: String, isActive: Bool,
+                stableAccountID: String? = nil,
                 capabilities: ProviderCapabilities, findings: [Finding]) {
         self.providerID = providerID
         self.displayName = displayName
         self.accountName = accountName
         self.isActive = isActive
+        self.stableAccountID = stableAccountID
         self.capabilities = capabilities
         self.findings = findings
     }
@@ -246,7 +359,7 @@ public extension ConnectionReport {
     /// 纯函数,所以「验证了哪些关键字段」这套规则能单测 ——
     /// 否则它只能活在界面代码里,改坏了也没人知道。
     init(snapshot: Snapshot, providerID: String, displayName: String,
-         capabilities: ProviderCapabilities) {
+         capabilities: ProviderCapabilities, stableAccountID: String? = nil) {
 
         var findings: [Finding] = []
 
@@ -260,6 +373,7 @@ public extension ConnectionReport {
                   displayName: displayName,
                   accountName: snapshot.name,
                   isActive: snapshot.isActive,
+                  stableAccountID: stableAccountID,
                   capabilities: capabilities,
                   findings: findings)
     }
@@ -273,10 +387,10 @@ public extension UsageProviderAdapter {
     ///
     /// 这是有意的 —— 域名像不像、路径对不对都不算数,只有真请求跑通,
     /// 才算确认这个适配器认得对方的协议。`detect` 从头到尾只是个排序提示。
-    func verify(_ account: AccountIdentity, language: Language) async throws -> ConnectionReport {
+    func verify(_ connection: Connection, language: Language) async throws -> ConnectionReport {
         // 这时还没学到任何重置规则,给一个默认 schedule;
         // 报告里的 dailyResetInferred 本来就是照能力声明给的,不依赖它。
-        let snapshot = try await fetchUsage(account, schedule: ResetSchedule(), language: language)
+        let snapshot = try await fetchUsage(connection, schedule: ResetSchedule(), language: language)
         return ConnectionReport(snapshot: snapshot,
                                 providerID: providerID,
                                 displayName: displayName,

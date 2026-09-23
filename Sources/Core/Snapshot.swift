@@ -28,9 +28,18 @@ public struct Snapshot: Equatable {
     /// 哪条该排在前面是那家供应商的事,通用层不该有自己的偏好。
     public let gauges: [QuotaBucket]
 
-    public let totalCost: Double
-    public let totalRequests: Int
-    public let totalTokens: Double
+    /// 账户累计消费 / 请求数 / token。**nil 表示这家供应商根本不报这一项**,
+    /// 和「真的是 0」不是一回事(不变量 3)。
+    ///
+    /// 从前它们是非可选的,于是不报累计值的供应商只能填 0,面板上就出现
+    /// 「0 次请求 · 0 tokens」—— 一个我们并不知道的数字被说成了事实。
+    /// 改成可选之后,面板整行不显示,历史里的 token 链路也自然空着。
+    ///
+    /// 注:`totalCost` 目前**没有任何读者**(面板显示的是每条额度各自的用量)。
+    /// 留着是因为删一个 public 字段是另一个决定,不该顺手做。
+    public let totalCost: Double?
+    public let totalRequests: Int?
+    public let totalTokens: Double?
 
     public let monthlyCost: Double?
     public let monthlyRequests: Int?
@@ -42,7 +51,7 @@ public struct Snapshot: Equatable {
     public let hasCompleteUsage: Bool
 
     public init(name: String, isActive: Bool, gauges: [QuotaBucket],
-                totalCost: Double, totalRequests: Int, totalTokens: Double,
+                totalCost: Double?, totalRequests: Int?, totalTokens: Double?,
                 monthlyCost: Double?, monthlyRequests: Int?, fetchedAt: Date,
                 hasCompleteUsage: Bool = true) {
         self.name = name

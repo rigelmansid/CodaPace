@@ -34,6 +34,16 @@ public struct AccountIdentity: Equatable, Hashable {
     /// 还没配置过
     public static let none = AccountIdentity(providerID: "", baseURL: "", apiId: "")
 
+    /// 身份的**占位值**,只活在「解析完成、还没 verify」这一小段里。
+    ///
+    /// 有的供应商的账户标识不在用户输入里,而在响应里(tu-zi 的 `key_id`)——
+    /// 那种适配器声明 `accountIDComesFromResponse`,保存流程必须先经过
+    /// `ProviderRegistry.resolvedForSaving` 把它换成真身份。
+    ///
+    /// **它永远不该进存储。** 真进去了就说明保存流程漏掉了那道门:
+    /// 所有这类账户会共用同一个分区键,历史和偏好当场串在一起。
+    public static let unresolvedAccountID = "__unresolved__"
+
     public var isConfigured: Bool {
         !providerID.isEmpty && !baseURL.isEmpty && !apiId.isEmpty
     }
@@ -58,7 +68,15 @@ public struct AccountIdentity: Equatable, Hashable {
     /// 第三种口径,理由是这里**没有迁移成本**:历史换了键会孤立掉用户攒下的曲线,
     /// 偏好换了键会丢掉学到的重置时刻;而去重账本最坏的后果只是多发一条通知。
     /// 所以这里可以用最严格的口径,方向也对 —— 宁可重复提醒,不可漏报。
-    public var notificationNamespace: String {
+    public var notificationNamespace: String { fullIdentityKey }
+
+    /// **完整身份**(供应商 + 服务地址 + 账户标识)派生出的键。
+    ///
+    /// 两个用处共用它:通知去重的命名空间,以及钥匙串里那条密钥的键。
+    /// 两者的理由不同,但要的口径恰好相同 —— 一把 key 是某一家的某个部署上的
+    /// 某个账户的,三样有一样变了就是另一回事。算一次就够,不留两份会各自漂移
+    /// 的实现(不变量 5)。
+    public var fullIdentityKey: String {
         AccountKey.derive([providerID, baseURL, apiId])
     }
 

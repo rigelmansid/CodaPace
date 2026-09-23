@@ -260,15 +260,30 @@ struct PopoverView: View {
         }
     }
 
+    /// 「累计」那一行的文字。两项都没有就返回 nil —— 整行不显示。
+    private func totalsLine(_ snapshot: Snapshot) -> String? {
+        let parts = [
+            snapshot.totalRequests.map { l10n.f(.requestsShortFormat, Fmt.int($0)) },
+            snapshot.totalTokens.map { "\(Fmt.count($0)) tokens" },
+        ].compactMap { $0 }
+
+        return parts.isEmpty ? nil : parts.joined(separator: " · ")
+    }
+
     private func summarySection(_ snapshot: Snapshot) -> some View {
         VStack(alignment: .leading, spacing: 4) {
             if let cost = snapshot.monthlyCost {
                 summary(l10n.t(.summaryMonthly), Fmt.money2(cost)
                         + (snapshot.monthlyRequests.map { " · " + l10n.f(.requestsFormat, Fmt.int($0)) } ?? ""))
             }
-            summary(l10n.t(.summaryTotal),
-                    l10n.f(.requestsShortFormat, Fmt.int(snapshot.totalRequests))
-                    + " · \(Fmt.count(snapshot.totalTokens)) tokens")
+            // 这一行**只在供应商真的报了累计值时才出现**。
+            //
+            // 从前它是无条件的,于是不报累计值的供应商(tu-zi 就一个都不报)
+            // 会在这里显示「0 次请求 · 0 tokens」—— 把一个我们并不知道的数字
+            // 说成了事实。两项各自可选:报了请求数没报 token 也照样显示得出来。
+            if let line = totalsLine(snapshot) {
+                summary(l10n.t(.summaryTotal), line)
+            }
 
             // 有旧数据但最近一次刷新失败 —— 数字还留着,但要说清楚它可能过期了
             if let error = service.errorText {

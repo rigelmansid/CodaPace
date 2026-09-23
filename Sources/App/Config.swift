@@ -143,20 +143,72 @@ enum Config {
     /// 负责当前账户的适配器
     static var adapter: UsageProviderAdapter { ProviderRegistry.adapter(for: account) }
 
-    /// 整体写入账户。三个字段必须一起换:分开写会留下「A 的网址 + B 的 apiId」这种
-    /// 谁都不是的中间态,而恰好在那一刻读到它的刷新会发往错误的地方。
-    static func apply(_ account: AccountIdentity) {
-        // 明文存 UserDefaults 的前提是「它只是个只读统计标识」(理由见文件头)。
-        // 这个前提属于**具体那家供应商**,不是通用假设 —— 以后接入带密钥的供应商时,
-        // 这里会拦住它,逼着为它设计真正的存储,而不是顺手沿用现在这套。
-        guard ProviderRegistry.canStoreInPlainText(ProviderRegistry.adapter(for: account)) else {
-            assertionFailure("\(account.providerID) 带的是敏感凭据,不能沿用明文存储")
+    /// 整体写入一个连接。三个身份字段必须一起换:分开写会留下
+    /// 「A 的网址 + B 的 apiId」这种谁都不是的中间态,而恰好在那一刻读到它的
+    /// 刷新会发往错误的地方。
+    ///
+    /// 密钥先落钥匙串、后落身份 —— **顺序是有讲究的**:
+    /// 反过来的话,钥匙串写失败时身份已经存进去了,app 会带着一个取不到密钥的
+    /// 账户一直刷不出数,而用户看到的只是「请求失败」。先写密钥,失败就整个抛出,
+    /// 配置停在上一个能用的状态。
+    ///
+    /// - Throws: 钥匙串写入失败。调用方**必须**把它显示出来,不能吞掉。
+    static func apply(_ connection: Connection) throws {
+        let account = connection.account
+        let adapter = ProviderRegistry.adapter(for: account)
+
+        // 占位身份绝不能落盘:所有这类账户会共用同一个分区键,
+        // 历史和偏好当场串在一起。正常流程走 `resolvedForSaving` 换过真身份了,
+        // 走到这儿还是占位就说明那道门被绕开了。
+        guard account.apiId != AccountIdentity.unresolvedAccountID else {
+            assertionFailure("\(connection) 的身份还没解析出来,不能保存")
             return
+        }
+
+        switch adapter.credentialSensitivity {
+        case .readOnlyIdentifier:
+            // apiId 只是个只读统计标识,明文可接受(理由见文件头)。
+            // 这家不该带密钥来 —— 带了说明适配器的声明和实现对不上。
+            assert(connection.secret == nil, "\(adapter.providerID) 声明不带密钥,却给了一个")
+
+        case .secret:
+            // 这条分支正是 EXT-003 建 CredentialSensitivity 时留的出口:
+            // 声明带密钥的供应商在这里被引向钥匙串,而不是顺手沿用明文存储。
+            guard let secret = connection.secret, !secret.isEmpty else {
+                assertionFailure("\(adapter.providerID) 声明需要密钥,却没给")
+                return
+            }
+            try KeychainStore.set(secret, for: credentialKey(account))
         }
 
         defaults.set(account.providerID, forKey: "providerID")
         defaults.set(account.baseURL, forKey: "baseURL")
         defaults.set(account.apiId, forKey: "apiId")
+    }
+
+    /// 当前这个账户要用的连接(身份 + 密钥)。
+    ///
+    /// 刷新流程拿它一次取齐,一路传到适配器 —— 适配器不读任何全局配置。
+    /// 身份定住了而密钥没定住等于没定住:中途换账户会让 A 的密钥发往 B 的地址。
+    ///
+    /// 钥匙串里那条不在了(换过机器、重装过系统、用户手动删了)时 `secret` 为 nil,
+    /// 适配器会抛出「缺少密钥」而不是发一个没有认证头的请求 —— 后者的报错是
+    /// 401,看起来像 key 失效,会把人引到错误的方向。
+    static func connection(for account: AccountIdentity) -> Connection {
+        let adapter = ProviderRegistry.adapter(for: account)
+        guard adapter.credentialSensitivity == .secret else {
+            return Connection(account: account)
+        }
+        return Connection(account: account,
+                          secret: try? KeychainStore.get(credentialKey(account)))
+    }
+
+    /// 钥匙串里那条密钥的键。
+    ///
+    /// 用**完整身份**:一把 key 是某一家的某个部署上的某个账户的,
+    /// 三样有一样变了就是另一把 key,不能互相顶替。
+    private static func credentialKey(_ account: AccountIdentity) -> String {
+        "credential.\(account.fullIdentityKey)"
     }
 
     static var isConfigured: Bool { account.isConfigured }

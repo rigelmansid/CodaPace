@@ -34,16 +34,33 @@ final class RelayProviderTests: XCTestCase {
     // ── parseConnection ────────────────────────────────
 
     func testParsesSchemeHostAndApiId() {
-        let account = relay.parseConnection(statsURL)
+        let account = relay.parseConnection(statsURL)?.account
         XCTAssertEqual(account?.providerID, relay.providerID)
         XCTAssertEqual(account?.baseURL, "https://api.example.com")
         XCTAssertEqual(account?.apiId, "abc123")
         XCTAssertTrue(account?.isConfigured ?? false)
     }
 
+    /// 这家的 apiId 是身份本身,不是密钥 —— 解析出来不该附带任何凭据
+    func testTheRelayConnectionCarriesNoSecret() {
+        XCTAssertNil(relay.parseConnection(statsURL)?.secret)
+    }
+
+    /// 身份就写在用户给的网址里,不必先跑一次请求才知道自己是谁
+    func testTheRelayDoesNotNeedTheResponseToKnowItsAccountID() {
+        XCTAssertFalse(relay.accountIDComesFromResponse)
+    }
+
+    /// 这家不报日重置时刻,得靠观测 —— 它得说出是哪条额度,
+    /// 否则通用层只能写死一个额度名(不变量 6)
+    func testTheRelayNamesTheQuotaWhoseDailyResetMustBeLearned() {
+        XCTAssertEqual(relay.learnableDailyBucketID, "daily")
+        XCTAssertFalse(relay.capabilities.contains(.dailyResetTime))
+    }
+
     /// 自建部署常带非标准端口,不能丢
     func testKeepsANonStandardPort() {
-        let account = relay.parseConnection("https://api.example.com:8443/admin-next/api-stats?apiId=k")
+        let account = relay.parseConnection("https://api.example.com:8443/admin-next/api-stats?apiId=k")?.account
         XCTAssertEqual(account?.baseURL, "https://api.example.com:8443")
     }
 
@@ -54,14 +71,14 @@ final class RelayProviderTests: XCTestCase {
 
     func testSurroundingWhitespaceIsTolerated() {
         // 从浏览器地址栏复制常带换行
-        XCTAssertEqual(relay.parseConnection("  \(statsURL)\n")?.apiId, "abc123")
+        XCTAssertEqual(relay.parseConnection("  \(statsURL)\n")?.account.apiId, "abc123")
     }
 
     // ── managementURL ─────────────────────────────────
 
     /// 后台地址由适配器构造 —— 它和统计接口不一定同源同路径
     func testManagementURLIsBuiltByTheAdapter() {
-        let account = relay.parseConnection(statsURL)!
+        let account = relay.parseConnection(statsURL)!.account
         XCTAssertEqual(relay.managementURL(for: account)?.absoluteString, statsURL)
     }
 
@@ -111,9 +128,9 @@ final class ProviderRegistryTests: XCTestCase {
     func testParseReturnsBothTheAdapterAndTheAccount() {
         let resolved = ProviderRegistry.parse(statsURL)
         XCTAssertEqual(resolved?.adapter.providerID, RelayProvider.id)
-        XCTAssertEqual(resolved?.account.apiId, "abc123")
+        XCTAssertEqual(resolved?.connection.account.apiId, "abc123")
         // 解析出的身份必须自带 providerID,否则存下去就不知道该谁来刷
-        XCTAssertEqual(resolved?.account.providerID, RelayProvider.id)
+        XCTAssertEqual(resolved?.connection.account.providerID, RelayProvider.id)
     }
 
     func testUnparsableInputResolvesToNothing() {
@@ -157,31 +174,31 @@ final class PathPrefixTests: XCTestCase {
     /// 只取 scheme://host 会把请求发到根路径上去 —— 那台机器上根本没有 /apiStats。
     func testSubPathDeploymentKeepsItsPrefix() {
         let account = relay.parseConnection(
-            "https://example.com/relay/admin-next/api-stats?apiId=k")
+            "https://example.com/relay/admin-next/api-stats?apiId=k")?.account
         XCTAssertEqual(account?.baseURL, "https://example.com/relay")
     }
 
     func testMultiSegmentPrefixIsKept() {
         let account = relay.parseConnection(
-            "https://example.com/a/b/admin-next/api-stats?apiId=k")
+            "https://example.com/a/b/admin-next/api-stats?apiId=k")?.account
         XCTAssertEqual(account?.baseURL, "https://example.com/a/b")
     }
 
     /// 根路径部署不该凭空多出一截
     func testRootDeploymentHasNoPrefix() {
-        XCTAssertEqual(relay.parseConnection(statsURL)?.baseURL, "https://api.example.com")
+        XCTAssertEqual(relay.parseConnection(statsURL)?.account.baseURL, "https://api.example.com")
     }
 
     func testPrefixSurvivesAlongsideAPort() {
         let account = relay.parseConnection(
-            "https://example.com:8443/relay/admin-next/api-stats?apiId=k")
+            "https://example.com:8443/relay/admin-next/api-stats?apiId=k")?.account
         XCTAssertEqual(account?.baseURL, "https://example.com:8443/relay")
     }
 
     /// 解析出来的东西要能原样拼回去 —— 后台链接不能把前缀丢了
     func testManagementURLRoundTripsThePrefix() {
         let url = "https://example.com/relay/admin-next/api-stats?apiId=k"
-        let account = relay.parseConnection(url)!
+        let account = relay.parseConnection(url)!.account
         XCTAssertEqual(relay.managementURL(for: account)?.absoluteString, url)
     }
 }
@@ -193,7 +210,7 @@ final class ProviderResolutionTests: XCTestCase {
     func testKnownLinkResolves() {
         XCTAssertEqual(ProviderRegistry.resolve(statsURL),
                        .resolved(providerID: RelayProvider.id,
-                                 account: relay.parseConnection(statsURL)!))
+                                 connection: relay.parseConnection(statsURL)!))
     }
 
     /// 认不出来就如实说认不出来 —— 猜一个出来会让用户对着「已识别」的假象排查半天
@@ -206,7 +223,7 @@ final class ProviderResolutionTests: XCTestCase {
     func testManuallyChosenProviderIsHonoured() {
         XCTAssertEqual(ProviderRegistry.resolve(statsURL, using: RelayProvider.id),
                        .resolved(providerID: RelayProvider.id,
-                                 account: relay.parseConnection(statsURL)!))
+                                 connection: relay.parseConnection(statsURL)!))
     }
 
     func testManuallyChosenProviderThatCannotParseIsUnsupported() {
@@ -241,9 +258,9 @@ private struct SecretBearingStub: UsageProviderAdapter {
     var credentialSensitivity: CredentialSensitivity { .secret }
     var inputExample: String { "" }
     func detect(_ input: String) -> Bool { false }
-    func parseConnection(_ input: String) -> AccountIdentity? { nil }
+    func parseConnection(_ input: String) -> Connection? { nil }
     func managementURL(for account: AccountIdentity) -> URL? { nil }
-    func fetchUsage(_ account: AccountIdentity, schedule: ResetSchedule,
+    func fetchUsage(_ connection: Connection, schedule: ResetSchedule,
                     language: Language) async throws -> Snapshot {
         throw APIError("stub")
     }

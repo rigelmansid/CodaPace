@@ -28,7 +28,12 @@ public struct InvalidFieldError: Error, Equatable {
 
 // MARK: - 解码辅助
 
-private extension KeyedDecodingContainer {
+/// 这几个是**通用**的严格解码工具,不属于任何一家的线上格式 ——
+/// 所以是 internal 而不是 private:第二个适配器(TuziProvider)照样要用它们,
+/// 各抄一份就成了会各自漂移的平行实现(不变量 5)。
+///
+/// 它们目前住在这个文件里,是因为「不重排文件」比「按洁癖归位」更要紧。
+extension KeyedDecodingContainer {
 
     /// 键存在且不是 null
     ///

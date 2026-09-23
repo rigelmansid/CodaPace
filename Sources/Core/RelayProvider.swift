@@ -26,6 +26,10 @@ public struct RelayProvider: UsageProviderAdapter {
 
     public var inputExample: String { "https://your-relay.example.com/admin-next/api-stats?apiId=…" }
 
+    /// 这家不报日重置时刻,只能靠观测「今日」那条计数器归零来学 ——
+    /// 和 `capabilities` 里没有 `.dailyResetTime` 是同一件事的两种说法。
+    public var learnableDailyBucketID: String? { "daily" }
+
     /// 这个中转站给什么、不给什么。
     ///
     /// 两个「不给」是有实际后果的,不是凑数:
@@ -51,7 +55,9 @@ public struct RelayProvider: UsageProviderAdapter {
     }
 
     /// 例:https://api.example.com/admin-next/api-stats?apiId=xxxx
-    public func parseConnection(_ input: String) -> AccountIdentity? {
+    ///
+    /// 不带凭据:这家的 apiId 就是身份本身,是个只读统计标识,不是密钥。
+    public func parseConnection(_ input: String) -> Connection? {
         let text = input.trimmingCharacters(in: .whitespacesAndNewlines)
         guard let comps = URLComponents(string: text),
               let scheme = comps.scheme,
@@ -67,7 +73,8 @@ public struct RelayProvider: UsageProviderAdapter {
         // 只取 scheme://host 会把请求发到根路径上去 —— 那台机器上根本没有 /apiStats。
         base += pathPrefix(of: comps.path)
 
-        return AccountIdentity(providerID: providerID, baseURL: base, apiId: apiId)
+        return Connection(account: AccountIdentity(providerID: providerID,
+                                                  baseURL: base, apiId: apiId))
     }
 
     /// 用量页面路径里位于 `/admin-next/api-stats` **之前**的那一段。
@@ -87,8 +94,9 @@ public struct RelayProvider: UsageProviderAdapter {
 
     // MARK: - 抓取
 
-    public func fetchUsage(_ account: AccountIdentity, schedule: ResetSchedule,
+    public func fetchUsage(_ connection: Connection, schedule: ResetSchedule,
                            language: Language) async throws -> Snapshot {
+        let account = connection.account
         let stats = try await userStats(account, language: language)
 
         // 本月消费是锦上添花,取不到不影响主结果
@@ -200,6 +208,16 @@ extension RelayProvider {
                         window: dailyRule.period(containing: now),
                         rule: dailyRule),
 
+            // 标题里那个「Opus」不是随手起的:中转站这条额度的字段名就是
+            // `weeklyOpusCostLimit`,它**只限 Opus**,用 Sonnet 不吃这条。
+            // 所以不能图通用改成「本周」—— 那会让用户以为所有模型共用一条周限额。
+            //
+            // 反过来说,这个标题的正确性**押在中转站的这条性质上**:哪天它改成
+            // 限全部模型而字段名没动,这里就开始撒谎了。真要变,改的是标题,
+            // **不是 id** —— id 是三处存量数据的主键(见 QuotaBucket.id)。
+            //
+            // 别家供应商的周额度是**另一个桶**,由它自己的适配器声明自己的 id 和标题
+            // (tu-zi 的是 `weekly`),不会复用这一条,也就不会显示成「本周 Opus」。
             QuotaBucket(id: "weeklyOpus",
                         title: .localized(.quotaWeeklyOpus),
                         used: L.weeklyOpusCost,
