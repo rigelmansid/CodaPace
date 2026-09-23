@@ -1,103 +1,18 @@
 //
-//  Models.swift — 中转站接口的数据模型
+//  RelayModels.swift — claude-relay-service 的线上格式
 //
-//  解码策略:**容忍缺失,拒绝无效**。这两件事从前混在一起,都退回 0:
+//  **这是那一家的数据模型,不是通用模型。** 从前它叫 Models.swift、住在一个
+//  听起来像通用层的位置,于是下一个人很容易把第二家的字段也加进来,
+//  或者拿 UserStats 去接别家的响应 —— 那正是不变量 6 要挡的事(EXT-009)。
 //
-//  · 缺失(没这个键)或 null —— 容忍。换一个 claude-relay-service 部署、
-//    对方加减字段,都不该让整份响应解码失败。
-//  · 存在但类型不对(数字位置上是字符串、对象位置上是数组…)—— 拒绝整份响应。
-//    这不是「没有」,是数据坏了;给它填 0 会被下游当成真实的「花了 0 块钱」。
+//  tu-zi 的对应物是 TuziQuota,住在 TuziProvider.swift 里,和这里没有一个字段相同:
+//  信封是 {code,message,data} 而不是 {success,data},额度是日/周/月而不是这四条。
 //
-//  容忍缺失本身也有代价:0 和「不知道」在历史里是两件完全不同的事。
-//  所以要进历史的那几个数值会另外记一笔「这次是不是真的观测到了」——
-//  见 UserStats.hasCompleteUsage。
+//  通用的严格解码机制(InvalidFieldError、容忍缺失/拒绝无效的那套辅助)
+//  在 Decoding.swift,两家共用。
 //
 
 import Foundation
-
-// MARK: - 无效字段
-
-/// 响应里某个字段**存在但类型不对**。
-///
-/// 单独立一个错误类型,是为了能在错误信息里点出是哪个字段坏了 ——
-/// 笼统的「响应格式无法解析」对着一个自建中转站根本没法排查。
-public struct InvalidFieldError: Error, Equatable {
-    public let field: String
-    public init(field: String) { self.field = field }
-}
-
-// MARK: - 解码辅助
-
-/// 这几个是**通用**的严格解码工具,不属于任何一家的线上格式 ——
-/// 所以是 internal 而不是 private:第二个适配器(TuziProvider)照样要用它们,
-/// 各抄一份就成了会各自漂移的平行实现(不变量 5)。
-///
-/// 它们目前住在这个文件里,是因为「不重排文件」比「按洁癖归位」更要紧。
-extension KeyedDecodingContainer {
-
-    /// 键存在且不是 null
-    ///
-    /// null 归到「没给」而不是「坏了」:用 null 表示可选字段为空是很常见的写法,
-    /// 为此把整份响应判死太激进。但它同样不是观测值,照样会让用量被标成不完整。
-    func present(_ k: Key) throws -> Bool {
-        guard contains(k) else { return false }
-        return try !decodeNil(forKey: k)
-    }
-
-    func number(_ k: Key) throws -> Double? {
-        guard try present(k) else { return nil }
-        guard let v = try? decode(Double.self, forKey: k) else {
-            throw InvalidFieldError(field: k.stringValue)
-        }
-        return v
-    }
-
-    func integer(_ k: Key) throws -> Int? {
-        guard try present(k) else { return nil }
-        guard let v = try? decode(Int.self, forKey: k) else {
-            throw InvalidFieldError(field: k.stringValue)
-        }
-        return v
-    }
-
-    func text(_ k: Key) throws -> String? {
-        guard try present(k) else { return nil }
-        guard let v = try? decode(String.self, forKey: k) else {
-            throw InvalidFieldError(field: k.stringValue)
-        }
-        return v
-    }
-
-    func flag(_ k: Key) throws -> Bool? {
-        guard try present(k) else { return nil }
-        guard let v = try? decode(Bool.self, forKey: k) else {
-            throw InvalidFieldError(field: k.stringValue)
-        }
-        return v
-    }
-
-    /// 嵌套对象。缺失 → nil;存在但解不出来 → 拒绝。
-    /// 内层自己抛的 InvalidFieldError 原样上抛,好保留真正出问题的那个字段名。
-    func object<T: Decodable>(_ type: T.Type, forKey k: Key) throws -> T? {
-        guard try present(k) else { return nil }
-        do {
-            return try decode(type, forKey: k)
-        } catch let error as InvalidFieldError {
-            throw error
-        } catch {
-            throw InvalidFieldError(field: k.stringValue)
-        }
-    }
-
-    func nested<NestedKey>(_ keys: NestedKey.Type,
-                           forKey k: Key) throws -> KeyedDecodingContainer<NestedKey>? {
-        guard try present(k) else { return nil }
-        guard let container = try? nestedContainer(keyedBy: keys, forKey: k) else {
-            throw InvalidFieldError(field: k.stringValue)
-        }
-        return container
-    }
-}
 
 // MARK: - limits
 
@@ -262,12 +177,6 @@ public struct Envelope<T: Decodable>: Decodable {
     public let success: Bool
     public let data: T?
     public let message: String?
-}
-
-public struct APIError: LocalizedError, Equatable {
-    public let message: String
-    public init(_ message: String) { self.message = message }
-    public var errorDescription: String? { message }
 }
 
 public enum ResponseDecoder {

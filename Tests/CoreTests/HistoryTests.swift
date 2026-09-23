@@ -976,6 +976,109 @@ final class SchemaMigrationTests: XCTestCase {
                        "重跑展开的话,这里会冒出 total/weeklyOpus/window 三条 0")
     }
 
+    // MARK: 认领老分区(EXT-009)
+
+    /// 分区键加 providerID 之后,老用户的历史靠这一步接上。
+    ///
+    /// 哈希是单向的,库里只有结果算不回 apiId —— 所以映射必须由知道两个键的
+    /// 那一层传进来,库自己迁不了。
+    func testALegacyPartitionIsAdoptedUnderTheNewKey() {
+        let url = storeURL()
+        let old = try! HistoryStore(path: url, accountKey: "old-key")
+        try! old.insert(Sample(at: base, allTokens: 500,
+                               quotas: ["daily": QuotaReading(used: 42, limit: 70)]))
+        try! old.addTokenDelta(day: "2026-09-20", tokens: 500, requests: 3)
+
+        let migrated = try! HistoryStore(path: url, accountKey: "new-key",
+                                         legacyAccountKey: "old-key")
+
+        XCTAssertEqual(try! migrated.sampleCount(), 1)
+        XCTAssertEqual(try! migrated.lastSample()?.used("daily") ?? -1, 42, accuracy: 1e-9)
+        XCTAssertEqual(try! migrated.lastSample()?.reading("daily")?.limit, 70)
+    }
+
+    /// **四张表都要迁。** 只迁一半会让采样和它的额度行、token 桶分家 ——
+    /// 那比不迁更糟:曲线还在,对应的用量却凭空少一截。
+    func testEveryPartitionedTableIsCarriedOver() {
+        let url = storeURL()
+        let old = try! HistoryStore(path: url, accountKey: "old-key")
+        try! old.insert(Sample(at: base, quotas: ["daily": QuotaReading(used: 1, limit: 70)]))
+        try! old.addTokenDelta(day: "2026-09-20", tokens: 500, requests: 3)
+        try! old.addUnattributed(from: base, to: base.addingTimeInterval(60),
+                                 tokens: 200, requests: 1)
+
+        let migrated = try! HistoryStore(path: url, accountKey: "new-key",
+                                         legacyAccountKey: "old-key")
+
+        XCTAssertEqual(try! migrated.knownBucketIDs(), ["daily"])      // quota_samples
+        XCTAssertEqual(totalTokens(of: migrated), 500)                 // token_days
+        XCTAssertEqual(try! migrated.unattributedTotal(from: base.addingTimeInterval(-60),
+                                                       to: base.addingTimeInterval(120)).tokens,
+                       200)                                            // unattributed_deltas
+    }
+
+    /// 幂等:重开第二次不该再动手。
+    /// 不幂等的话,认领会在每次打开时重跑,把后写进去的数据一次次往回搬。
+    func testAdoptingIsIdempotentAcrossReopens() {
+        let url = storeURL()
+        let old = try! HistoryStore(path: url, accountKey: "old-key")
+        try! old.insert(Sample(at: base, quotas: ["daily": QuotaReading(used: 1)]))
+
+        _ = try! HistoryStore(path: url, accountKey: "new-key", legacyAccountKey: "old-key")
+
+        // 迁完之后新账户又攒了一条
+        let reopened = try! HistoryStore(path: url, accountKey: "new-key",
+                                         legacyAccountKey: "old-key")
+        try! reopened.insert(Sample(at: base.addingTimeInterval(60),
+                                    quotas: ["daily": QuotaReading(used: 2)]))
+
+        let again = try! HistoryStore(path: url, accountKey: "new-key",
+                                      legacyAccountKey: "old-key")
+        XCTAssertEqual(try! again.sampleCount(), 2)
+    }
+
+    /// **新键下已经有数据就不认领。**
+    ///
+    /// 有数据说明要么迁过了,要么这本来就是个有自己历史的账户。
+    /// 再搬一次会把两份历史叠在一起,而叠了就再也分不开。
+    func testAPartitionThatAlreadyHasDataIsNeverMergedWith() {
+        let url = storeURL()
+        let old = try! HistoryStore(path: url, accountKey: "old-key")
+        try! old.insert(Sample(at: base, quotas: ["daily": QuotaReading(used: 1)]))
+
+        let mine = try! HistoryStore(path: url, accountKey: "new-key")
+        try! mine.insert(Sample(at: base.addingTimeInterval(3600),
+                                quotas: ["daily": QuotaReading(used: 99)]))
+
+        let reopened = try! HistoryStore(path: url, accountKey: "new-key",
+                                         legacyAccountKey: "old-key")
+        XCTAssertEqual(try! reopened.sampleCount(), 1, "两份历史不能叠在一起")
+        XCTAssertEqual(try! reopened.lastSample()?.used("daily") ?? -1, 99, accuracy: 1e-9)
+
+        // 老分区原样留着,没被搬走也没被删
+        XCTAssertEqual(try! HistoryStore(path: url, accountKey: "old-key").sampleCount(), 1)
+    }
+
+    /// 不给老键就什么都不做 —— 新装的用户没有老分区可认领
+    func testWithoutALegacyKeyNothingIsAdopted() {
+        let url = storeURL()
+        let old = try! HistoryStore(path: url, accountKey: "old-key")
+        try! old.insert(Sample(at: base, quotas: ["daily": QuotaReading(used: 1)]))
+
+        let fresh = try! HistoryStore(path: url, accountKey: "new-key")
+        XCTAssertEqual(try! fresh.sampleCount(), 0)
+    }
+
+    /// 老键和新键相同(兜底适配器之外的账户,或键的算法没变)时不该自己搬自己
+    func testAnIdenticalLegacyKeyIsANoOp() {
+        let url = storeURL()
+        let store = try! HistoryStore(path: url, accountKey: "same", legacyAccountKey: "same")
+        try! store.insert(Sample(at: base, quotas: ["daily": QuotaReading(used: 1)]))
+
+        let reopened = try! HistoryStore(path: url, accountKey: "same", legacyAccountKey: "same")
+        XCTAssertEqual(try! reopened.sampleCount(), 1)
+    }
+
     /// 迁移要幂等：重复打开同一个库不该出错
     func testReopeningAnAlreadyMigratedStoreIsFine() {
         let url = storeURL()

@@ -39,6 +39,45 @@ enum TinyTest {
     }
 }
 
+// MARK: - 跑一段 async
+
+/// 把一段 async 代码同步跑完,好让同步的用例能测异步路径。
+///
+/// 需要它的理由很具体:适配器的抓取路径是 `async`,而这套框架的用例全是同步的
+/// (XCTest 的 async 支持随 XCTest 走,本机没有)。不架这座桥,「认证失效」
+/// 「超时」「对方换了内容类型」这些失败路径**一条都测不到** —— 而它们正是
+/// 最该有测试、又最不可能靠真联网去构造的那些(EXT-009)。
+///
+/// **必须带超时。** 这套框架没有进程隔离:一个永不返回的 await 会把整轮测试
+/// 挂在这里,而且看不出是哪一条卡住的。超时后如实报失败,比挂死有用得多。
+func runAsync<T>(timeout: TimeInterval = 5,
+                 file: StaticString = #filePath, line: UInt = #line,
+                 _ body: @escaping @Sendable () async throws -> T) throws -> T {
+
+    let box = ResultBox<T>()
+    let semaphore = DispatchSemaphore(value: 0)
+
+    Task {
+        do { box.value = .success(try await body()) }
+        catch { box.value = .failure(error) }
+        semaphore.signal()
+    }
+
+    guard semaphore.wait(timeout: .now() + timeout) == .success else {
+        TinyTest.fail("异步操作超过 \(timeout) 秒没有返回", file: file, line: line)
+        throw AsyncTimeout()
+    }
+    return try box.value!.get()
+}
+
+struct AsyncTimeout: Error {}
+
+/// `Task` 闭包和调用方在不同线程上碰同一个值,得有个盒子装它。
+/// 信号量保证了两边不会同时访问 —— 写在 signal 之前,读在 wait 之后。
+private final class ResultBox<T>: @unchecked Sendable {
+    var value: Result<T, Error>?
+}
+
 // MARK: - 断言(签名与 XCTest 保持一致)
 
 func XCTAssertEqual<T: Equatable>(_ a: @autoclosure () throws -> T,
@@ -63,6 +102,21 @@ func XCTAssertEqual<T: FloatingPoint>(_ a: @autoclosure () throws -> T,
         let (x, y) = (try a(), try b())
         guard abs(x - y) > accuracy else { return }
         TinyTest.fail("期望 \(x) ≈ \(y)(容差 \(accuracy))\(suffix(message()))", file: file, line: line)
+    } catch {
+        TinyTest.fail("求值时抛出错误:\(error)", file: file, line: line)
+    }
+}
+
+/// 失败信息里**两个值都要打出来**。只说「不该相等」,看到的人还得自己回去查
+/// 那个值是什么 —— 而这条断言失败时,恰恰是「它俩怎么会一样」最需要被回答。
+func XCTAssertNotEqual<T: Equatable>(_ a: @autoclosure () throws -> T,
+                                     _ b: @autoclosure () throws -> T,
+                                     _ message: @autoclosure () -> String = "",
+                                     file: StaticString = #filePath, line: UInt = #line) {
+    do {
+        let (x, y) = (try a(), try b())
+        guard x == y else { return }
+        TinyTest.fail("期望不相等,实际两边都是 \(x)\(suffix(message()))", file: file, line: line)
     } catch {
         TinyTest.fail("求值时抛出错误:\(error)", file: file, line: line)
     }

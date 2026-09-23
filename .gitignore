@@ -8,6 +8,9 @@ build/
 # macOS
 .DS_Store
 
+# Claude Code 的本机配置（记的是工具偏好，不是这个项目的一部分）
+.claude/
+
 # Xcode (not used by this project, but harmless to guard against)
 xcuserdata/
 *.xcuserstate

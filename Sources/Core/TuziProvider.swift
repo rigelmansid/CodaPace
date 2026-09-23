@@ -8,8 +8,10 @@
 //
 //  三件和这家协议有关、又特别容易做错的事,各自写在下面对应的位置:
 //
-//  1. `daily_used` 这类字段**没有任何单位标记**,只有 `fuel_pack.available_usd`
-//     明确带了 `_usd`。所以前者一律 `.unknown`,显示裸数字 —— 见 buildSnapshot。
+//  1. `daily_used` 这类字段在响应里**没有任何单位标记**,整份 JSON 只有
+//     `fuel_pack.available_usd` 带了 `_usd`。单位是从**供应商自己的用量页面**
+//     确认的(同一个数字在那里显示为 `$12.50 / $30.00`),不是从字段名推的 ——
+//     见 buildSnapshot。只看 JSON 会觉得该是 `.unknown`,别改回去。
 //  2. 顶层的 `quota` / `quota_used` / `rate_limit_*` / `usage_*` **全部忽略**。
 //     它们是另一条计费路径的字段,当前未启用 —— 「不适用」不是「用了 0」。
 //  3. 重置一律 `serverProvided`,**不外推**。对方每次都给 reset_at,不需要推。
@@ -28,7 +30,12 @@ public struct TuziProvider: UsageProviderAdapter {
     static let baseURL = "https://coding.tu-zi.com"
     static let quotaPath = "/reseller/v1/quota"
 
-    public init() {}
+    /// 见 `RelayProvider.transport`
+    let transport: HTTPTransport
+
+    public init(transport: HTTPTransport = URLSession.shared) {
+        self.transport = transport
+    }
 
     public var providerID: String { Self.id }
     public var displayName: String { "tu-zi" }
@@ -37,16 +44,18 @@ public struct TuziProvider: UsageProviderAdapter {
     /// 于是 `Config.apply` 那道守卫会把它挡在明文存储之外,逼着走钥匙串。
     public var credentialSensitivity: CredentialSensitivity { .secret }
 
-    public var inputExample: String { "sk-…（tu-zi 的 API Key）" }
+    /// 只给**形状**,不带家名 —— 设置界面的支持列表会把 displayName 排在它前面,
+    /// 再写一遍就成了「tu-zi    sk-…(tu-zi 的 API Key)」
+    public var inputExample: String { "sk-…" }
 
     /// 身份在响应里,不在输入里:用户给的是一把 key,`key_id` 得问了才知道。
     public var accountIDComesFromResponse: Bool { true }
 
     /// 这家给什么、不给什么。
     ///
-    /// **`costAmounts` 刻意为假**,尽管它报的数字看着就是钱:除了 `fuel_pack.available_usd`,
-    /// 没有一个额度字段带币种标记。声明成真等于替对方承认了一件它没说过的事,
-    /// 而界面会据此给数字加上 `$`。
+    /// `costAmounts` 为真的依据**不在 JSON 里**:那些额度字段一个币种标记都没带。
+    /// 依据是供应商自己的用量页面把同一个数字显示成 `$12.50 / $30.00` ——
+    /// 对方在另一个渠道说明了单位,那就不是我们替它发明的。
     ///
     /// 三个「不给」都有实际后果:没有累计 token / 请求数,面板上那一整行不显示、
     /// token 柱状图一直空着;没有 `usageHistory`,历史只能从装上那天起本地积累。
@@ -54,7 +63,8 @@ public struct TuziProvider: UsageProviderAdapter {
     /// `dailyResetTime` 为真是这家**相对中转站的实质优势** —— 日重置时刻是对方
     /// 明确给的,界面不必再标「推算」,也不需要 DailyResetLearner 去观测。
     public var capabilities: ProviderCapabilities {
-        [.windowResetTimes, .weeklyResetSchedule, .dailyResetTime, .monthlyAggregate]
+        [.costAmounts, .windowResetTimes, .weeklyResetSchedule,
+         .dailyResetTime, .monthlyAggregate]
     }
 
     // MARK: - 识别与解析
@@ -130,7 +140,7 @@ public struct TuziProvider: UsageProviderAdapter {
         req.setValue("application/json", forHTTPHeaderField: "Accept")
         req.cachePolicy = .reloadIgnoringLocalCacheData
 
-        let (data, response) = try await URLSession.shared.data(for: req)
+        let (data, response) = try await transport.data(for: req)
 
         if let http = response as? HTTPURLResponse, !(200..<300).contains(http.statusCode) {
             throw APIError(L10n.format(.errHTTPFormat, language, http.statusCode))
@@ -151,8 +161,8 @@ extension TuziProvider {
         // 三层窗口**同时展示,不相加**:样例里 weekly_used == monthly_used,
         // 因为订阅 09-17 才激活,同一笔消费落在两个窗口里。加起来会把它算两遍。
         //
-        // 单位一律 .unknown:这些字段没有任何币种标记(只有 fuel_pack.available_usd 有)。
-        // 打成 $29.22 就是凭空给一个我们并不知道单位的数字安一个币种。
+        // 单位是美元。响应里这些字段**没带币种标记**(只有 fuel_pack.available_usd 有),
+        // 依据来自供应商自己的用量页面:同一个数字在那里就是 `$12.50 / $30.00`。
         let gauges: [QuotaBucket] = [
             bucket(id: "daily", title: .quotaDaily, window: s.daily, now: now),
             bucket(id: "weekly", title: .quotaWeekly, window: s.weekly, now: now),
@@ -195,7 +205,7 @@ extension TuziProvider {
                            title: .localized(title),
                            used: window.used,
                            limit: window.limit,
-                           unit: .unknown,
+                           unit: .money(currency: "USD"),
                            window: rule?.period(containing: now),
                            rule: rule)
     }

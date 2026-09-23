@@ -100,9 +100,18 @@ struct SettingsView: View {
             VStack(alignment: .leading, spacing: 5) {
                 Text(l10n.t(.setupTitle))
                     .font(.system(size: 14, weight: .semibold))
-                Text(l10n.t(carriesSecret ? .setupDescKey : .setupDesc1))
-                    .font(.system(size: 11))
-                    .foregroundStyle(.secondary)
+                // 还认不出是哪家时,不说该填什么 —— 直接把支持列表摆出来,
+                // 让用户按自己那家的名字去对。认出来之后再给针对性的指引。
+                if resolved == nil {
+                    Text(l10n.t(.setupPickYourProvider))
+                        .font(.system(size: 11))
+                        .foregroundStyle(.secondary)
+                    supportedProviders
+                } else {
+                    Text(l10n.t(carriesSecret ? .setupDescKey : .setupDesc1))
+                        .font(.system(size: 11))
+                        .foregroundStyle(.secondary)
+                }
 
                 // 安全说明**跟着凭据性质走**,不是一句写死的话。
                 // 中转站的 apiId 确实动不了钱,而一把 sk- key 能 ——
@@ -135,7 +144,36 @@ struct SettingsView: View {
             }
         }
         .padding(20)
-        .frame(width: 560, height: 260)
+        .frame(width: 560, height: 290)
+    }
+
+    // MARK: 支持列表
+
+    /// 每家一行:**名字 + 它要什么形状的东西**。
+    ///
+    /// 这份列表从 `ProviderRegistry.all` 生成,用的是适配器早就有的 `displayName`
+    /// 和 `inputExample` —— 通用层不认识任何一家,第三家接进来自动出现在这里
+    /// (不变量 6)。
+    ///
+    /// 它替掉的是原先那句「中转站粘网址,订阅制供应商粘 Key」:那句要求用户
+    /// **先给自己归类**,而「中转站」「订阅制」是我们的词。用户知道的是自己用的
+    /// 那家叫什么,所以按名字对最省事。
+    private var supportedProviders: some View {
+        VStack(alignment: .leading, spacing: 3) {
+            ForEach(ProviderRegistry.all, id: \.providerID) { adapter in
+                HStack(alignment: .firstTextBaseline, spacing: 6) {
+                    Text(adapter.displayName)
+                        .font(.system(size: 11, weight: .medium))
+                        .frame(width: 130, alignment: .leading)
+                    Text(adapter.inputExample)
+                        .font(.system(size: 10, design: .monospaced))
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                }
+            }
+        }
+        .padding(.top, 1)
     }
 
     // MARK: 输入框

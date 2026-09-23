@@ -110,7 +110,9 @@ final class HistoryRecorder {
 
         if let store, accountKey == key { return store }
 
-        let opened = try HistoryStore(accountKey: key)
+        // 老分区的认领在这里发生 —— 只有这一层同时知道新旧两个键
+        let opened = try HistoryStore(accountKey: key,
+                                      legacyAccountKey: account.legacyStorageKey)
         store = opened
         accountKey = key
         writer.reset()          // 换账号了,两条基线都要重建

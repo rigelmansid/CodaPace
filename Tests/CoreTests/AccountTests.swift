@@ -45,8 +45,8 @@ final class AccountIdentityTests: XCTestCase {
     }
 
     func testStorageKeyDoesNotLeakTheRawApiId() {
-        XCTAssertEqual(accountA.storageKey, AccountKey.derive(apiId: "id-a"))
         XCTAssertFalse(accountA.storageKey.contains("id-a"))
+        XCTAssertFalse(accountA.storageKey.contains(accountA.providerID))
     }
 }
 

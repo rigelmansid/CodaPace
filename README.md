@@ -224,7 +224,7 @@ wrong URL or apiId is reported immediately instead of surfacing later as a silen
 
 ```bash
 ./build.sh                      # build CodaPace.app
-swift run CoreTests             # 381 unit tests
+swift run CoreTests             # 401 unit tests
 swift Scripts/make-icon.swift   # regenerate Resources/AppIcon.icns
 ```
 

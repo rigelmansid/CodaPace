@@ -145,21 +145,26 @@ final class TuziSnapshotTests: XCTestCase {
         XCTAssertEqual(snapshot().gauges.map(\.id), ["daily", "weekly", "monthly"])
     }
 
-    /// **本条最要紧。**
+    /// **证据不在这份 JSON 里,别只看它就把这条改回去。**
     ///
-    /// `daily_used` 没有任何单位标记,而同一份响应里 `fuel_pack.available_usd`
-    /// 明确带了 `_usd`。把前者也当美元打成 `$12.50`,就是凭空给一个我们并不知道
-    /// 单位的数字安一个币种 —— 正是「不发明数据」禁止的事。
-    func testAmountsCarryNoCurrencyBecauseTheProviderDeclaredNone() {
+    /// `daily_used` 没有任何单位标记,整份响应只有 `fuel_pack.available_usd`
+    /// 带了 `_usd`。单看 JSON 的结论只能是「不知道单位」。
+    ///
+    /// 但供应商自己的用量页面把**同一个数字**显示成 `$12.50 / $30.00` ——
+    /// 单位是对方在另一个渠道说明的,不是我们替它发明的。「不发明数据」禁止的是
+    /// 编造,不是禁止采信供应商自己的声明。
+    ///
+    /// 这条要是哪天翻回 `.unknown`,得先拿出新证据(比如页面改成了别的币种),
+    /// 而不是因为「JSON 里没写」。
+    func testAmountsAreUSDPerTheProvidersOwnUsagePage() {
         let daily = snapshot().bucket(id: "daily")
-        XCTAssertEqual(daily?.unit, .unknown)
-        XCTAssertFalse(daily?.amount(12.5).contains("$") ?? true,
-                       "对方没说单位,就不该打上美元符号")
+        XCTAssertEqual(daily?.unit, .money(currency: "USD"))
+        XCTAssertEqual(daily?.amount(12.5), "$12.50")
     }
 
-    /// 能力声明要和上面那条一致:声明 costAmounts 为真,界面就会去加币种
-    func testDoesNotClaimToProvideCostAmounts() {
-        XCTAssertFalse(tuzi.capabilities.contains(.costAmounts))
+    /// 能力声明要和上面那条一致:界面按 costAmounts 决定要不要给数字加币种
+    func testClaimsToProvideCostAmounts() {
+        XCTAssertTrue(tuzi.capabilities.contains(.costAmounts))
     }
 
     /// 日重置时刻是对方明确给的 —— 这是这家相对中转站的实质优势,

@@ -59,7 +59,7 @@ ad-hoc 签名、没有 provisioning profile 的 app **能用钥匙串**，写、
 ## 命令
 
 ```bash
-swift run CoreTests    # 381 例，应全绿。改 Core 或测试后必跑
+swift run CoreTests    # 401 例，应全绿。改 Core 或测试后必跑
 ./build.sh             # 构建 build/CodaPace.app（ad-hoc 签名）
 ```
 
@@ -119,11 +119,13 @@ pkill -f "CodaPace.app/Contents/MacOS/CodaPace"; sleep 1; open build/CodaPace.ap
 
 | 键 | 组成 | 用途 | 为什么不同 |
 |---|---|---|---|
-| `storageKey` | 仅 apiId | 历史分区 | 中继换网址还是同一份用量 |
+| `storageKey` | providerID + apiId | 历史分区 | 中继换网址还是同一份用量，但换一家供应商就是另一回事 |
 | `preferenceKey` | baseURL + apiId | 偏好分区 | 「日重置在几点」是那个部署的配置 |
 | `notificationNamespace` | providerID + baseURL + apiId | 通知去重 | 无迁移成本，可用最严口径 |
 
-前两者**刻意不含 `providerID`** —— 加进去会让存量用户的历史分区键当场改变，等于丢掉他们攒下的曲线。带版本的迁移属 EXT-009。
+`storageKey` 里的 `providerID` 是 EXT-009 加的，起因是一个**真实的碰撞**：tu-zi 的账户标识是响应里的 `key_id`（一个短整数），而自建中转站的 apiId 可以是任意字符串；撞上则两个账户的历史静默合并，且合了分不开。老用户的历史靠 `legacyStorageKey` 惰性认领接上 —— 哈希单向，库自己算不出映射，只有「用户切到哪个账户」那一刻才同时知道两个键。**只有兜底适配器的账户能认领老分区**，别家去认领会正好认到另一家的历史。
+
+`preferenceKey` **仍然不含 `providerID`，而且不需要含**：它已带 baseURL，两家的服务地址不可能相同。键加得越多能撞上的越少，而每加一个都要付一次迁移的代价 —— 只在真会撞的地方加。
 
 ### 2. 跨 `await` 必须校验身份
 
@@ -135,7 +137,7 @@ pkill -f "CodaPace.app/Contents/MacOS/CodaPace"; sleep 1; open build/CodaPace.ap
 
 「未知」「零」「不限」是三件事，压成一个值就是撒谎。已体现在：
 
-- `Sample.limits: QuotaLimits?` —— 有上限 / 当时不限(0) / 不知道(nil)
+- `QuotaReading.limit: Double?` —— 有上限 / 当时不限(0) / 不知道(nil)。**按桶各自可选**，一个桶的上限未知不牵连别的（阶段 2 前是四列一起判，任一为 NULL 整组算未知）
 - `UserStats.hasCompleteUsage` —— 响应缺字段就不入历史
 - `TokenAttribution.unattributed` —— 归不到某天就如实记成未归属，**不丢也不硬塞**
 - `QuotaConnector.isBoundaryInferred` —— 推算的边界不能画成已知事件
@@ -144,6 +146,8 @@ pkill -f "CodaPace.app/Contents/MacOS/CodaPace"; sleep 1; open build/CodaPace.ap
 - `QuotaUnit.unknown` —— 供应商没说单位就显示裸数字，不默认美元
 
 **遇到缺数据时不要「取个合理默认值」让流程跑通**，那正是本项目反复在修的 bug 形态。缺就如实标缺。
+
+但这条**禁止的是编造，不是禁止采信供应商自己的声明** —— 而「供应商说了」不等于「JSON 字段名里写了」。tu-zi 的单位就是这么定下来的：响应里一个币种标记都没有，但对方自己的用量页面把同一个数字显示成 `$12.50`。采信那个不算发明（详见下文 tu-zi 那节）。判据是**有没有一个可核对的来源**，不是它长在哪个字段上。
 
 ### 4. 日历规则 ≠ 固定时长
 
@@ -164,7 +168,7 @@ grep -rn "apiStats\|admin-next\|UserStats" Sources/App \
   Sources/Core/HistoryStore.swift Sources/Core/HistoryModels.swift Sources/Core/AlertPolicy.swift
 ```
 
-**无输出即通过。** 注意：对整个 `Sources` 排除 `RelayProvider.swift` 后 grep 会命中 `Models.swift` 里 `UserStats` 的类型定义本身和两处注释引用 —— 那是 DTO 的所在地，不是泄漏。上面这条命令才是真正要守的边界。（把 DTO 挪进适配器属于 EXT-009 范围。）
+**无输出即通过。** 命中 `RelayProvider.swift` / `RelayModels.swift` 不算泄漏 —— 那是那一家的地盘。EXT-009 已把 DTO 从原先那个名字很通用的 `Models.swift` 拆开：通用的严格解码机制留在 `Decoding.swift`，中转站的线上格式挪进 `RelayModels.swift`，tu-zi 的在 `TuziProvider.swift` 里。
 
 这条最近一次被违反是在菜单栏自动选择里：原先写死「排除叫 `window` 的那条额度」，那是中转站的额度名漏进了通用层。已改为按**周期长度**判定（EXT-001）。
 
@@ -188,6 +192,12 @@ XCTAssertEqual(points.first?.value, 42)   // 空数组时正常报失败，不�
 ```
 
 已有的 28 处不要为此专门去改（不重构），但如果正好在改那个文件的那一段，顺手换成 `first?`。
+
+### 测异步路径
+
+`runAsync { }` 把一段 async 代码同步跑完（EXT-009 加的）。需要它是因为适配器的抓取路径是 async，而这套框架的用例全是同步的 —— 不架这座桥，「认证失效」「超时」「对方返回 HTML」这些失败路径**一条都测不到**。
+
+它**带 5 秒超时**：这套框架没有进程隔离，一个永不返回的 await 会把整轮测试挂死且看不出是哪条。超时后如实报失败。
 
 ---
 
@@ -240,7 +250,7 @@ XCTAssertEqual(points.first?.value, 42)   // 空数组时正常报失败，不�
 | 认证 | 查询参数里的 apiId | `Authorization: Bearer` |
 | 信封 | `{success, data}` | `{code, message, data}` |
 | 额度 | total / daily / weeklyOpus / window | daily / weekly / monthly |
-| 单位 | 美元（字段名就是 cost） | **`.unknown`**（对方没标单位） |
+| 单位 | 美元（字段名就是 cost） | 美元（**证据在用量页面，不在 JSON**，见下） |
 | 重置时刻 | 要靠观测学习 | 服务端每次都给 |
 | 账户身份 | 网址里的 apiId | **响应里的 `key_id`** |
 | 凭据存储 | UserDefaults 明文 | **钥匙串** |
@@ -252,6 +262,14 @@ XCTAssertEqual(points.first?.value, 42)   // 空数组时正常报失败，不�
 - **身份在响应里的适配器必须先「测试连接」才能保存**（`accountIDComesFromResponse`）。没跑过就没有身份，编一个会在真身份到手那天把历史和偏好劈成两半。界面上保存按钮会灰着，并说明为什么。
 - **安全说明跟着 `credentialSensitivity` 走**。从前设置窗口写死一句「apiId 只能查看用量，不能发起请求」—— 那是中转站的性质被当成了通用前提。对一把能花钱的 key 照搬那句，是个假的安全承诺。
 
+**tu-zi 的单位：证据来自供应商自己的用量页面，不是 JSON。**
+
+响应里 `daily_used` 这类字段一个币种标记都没带，整份 JSON 只有 `fuel_pack.available_usd` 写了 `_usd`。所以最初声明的是 `.unknown`（显示裸数字）—— 只看 API 能得出的结论只有这一个。
+
+2026-09-24 用户核对了供应商的用量页面：**同一个数字**在那里显示为 `$12.50 / $30.00`。据此改成 `.money(currency: "USD")` 并声明 `.costAmounts`。
+
+这不违反「不发明数据」—— 那条禁止的是编造，不是禁止采信供应商自己的声明；对方只是把单位说在了另一个渠道。**要紧的是：只看那份 JSON 会觉得这里写错了。** 代码注释和两例测试里都钉了证据来源，要翻回 `.unknown` 得先拿出新证据（比如页面改成了别的币种），而不是因为「JSON 里没写」。
+
 ### 阶段 2 / 3 留下的三件事
 
 - **`samples` 表的四个额度列没删**，新行一律写 0 占位，**任何代码都不再读它们**。留着是为了万一要退回 v4 之前的版本，那之前的历史还在原处。SQLite 的 `DROP COLUMN` 支持看版本，删了反而不好回头。
@@ -262,11 +280,23 @@ XCTAssertEqual(points.first?.value, 42)   // 空数组时正常报失败，不�
 
 ## 其余剩余工作
 
-### 还欠的验证：OPT-009
+### OPT-009 已验完（2026-09-24 实机）
 
-该条的主体是 SwiftUI 的视图依赖，测试框架碰不到，三处 `onChange` 的实际触发行为**至今未经运行验证**。不需要写代码，只需要一个真实账户：开着历史窗口等一次定时刷新、切一次额度来源、切一次账户，各看一眼曲线和标题有没有跟着变。
+该条的主体是 SwiftUI 的视图依赖，测试框架碰不到，三处 `onChange` 曾长期**未经运行验证**。阶段 3 给了第二个真账户之后，用户实机走完三项：开着历史窗口等一次定时刷新（采样条数自己 +1）、切一次额度来源（面板缩略曲线和标题同时变）、中转站 ↔ tu-zi 来回切一次（额度选择器从四条变三条又变回来）。全部通过。
 
-阶段 3 之后这条终于有条件验完了：**中转站 ↔ tu-zi 来回切一次**，两个账户的额度表完全不同（四条 vs 三条），切换没生效会一眼看出来。代价是换账户会丢弃 token 增量基线，跨过那次切换的几分钟用量不会被计入某一天。
+同一趟顺带验掉了阶段 3 的设置窗口六项、以及 EXT-009 换分区键之后中转站的历史曲线**原样还在**。
+
+这是全项目最后一个「未验证」标记。
+
+### 换账户的代价，以及「账户存档」会放大它
+
+换账户时 `HistoryRecorder.accountDidChange()` 会丢掉 token 增量基线，跨过那次切换的用量归属会打折扣。今天这不构成问题，**原因只是切换很麻烦**：要去对应网站翻出 apiId 或 API Key 重新粘一遍，没人一天切五六次。
+
+用户提出要做「账户存档」（配置成功后存下来，下次从下拉里直接选，可自定义名称）—— 那个功能的全部意义就是把切换变廉价。**切换一廉价，这个缺陷就会被放大**：一天切五六次，就有五六段用量归属不准。
+
+记在这里是因为两件事在代码里隔得很远：基线在 `HistoryRecorder`，而下拉会长在面板上。做存档功能之前先决定这个怎么办，别等用户发现某天的 token 柱子矮了一截才回头找。
+
+（相关：历史、钥匙串、学到的日重置、通知去重**已经全都按账户分区**，切走再切回来一样不丢。唯一单值的只有「此刻选中的是哪个」——所以存档功能比它听起来小得多。）
 
 ### 经判断不做的
 
@@ -287,7 +317,7 @@ EXT-001 阶段 2 的 v3 → v4 迁移**不丢任何历史**（四个固定列原
 
 | 项目 | 结果 |
 |---|---|
-| `swift run CoreTests` | **381 通过 · 0 失败** |
+| `swift run CoreTests` | **401 通过 · 0 失败** |
 | UI 全量类型检查 | **通过，无输出**，约 5 秒 |
 | 供应商隔离核查（上文命令） | **干净，无命中** |
 | 构建产物 | arm64，`minos 13.0`，ad-hoc 签名 |
@@ -298,6 +328,6 @@ EXT-001 阶段 2 的 v3 → v4 迁移**不丢任何历史**（四个固定列原
 
 ### 已知的文档过时点
 
-- **测试数散落在 5 个地方**，加用例时必须一起改，否则会拿一个对不上的数去核基线：本文两处（「命令」+ 文末基线表）、`README.md`、`README.zh-CN.md`。当前值 **381**。
+- **测试数散落在 5 个地方**，加用例时必须一起改，否则会拿一个对不上的数去核基线：本文两处（「命令」+ 文末基线表）、`README.md`、`README.zh-CN.md`。当前值 **401**。
 
 发现新的过时点时记在这里，别让它散落在各文件里。

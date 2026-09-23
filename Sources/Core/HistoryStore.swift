@@ -35,7 +35,10 @@ public final class HistoryStore {
             .appendingPathComponent("History.sqlite")
     }
 
-    public init(path: URL = HistoryStore.defaultURL(), accountKey: String) throws {
+    /// - Parameter legacyAccountKey: 这个账户在**加 providerID 之前**用的分区键。
+    ///   给了就做一次惰性认领(见 `adoptLegacyPartition`)。新账户传 nil。
+    public init(path: URL = HistoryStore.defaultURL(), accountKey: String,
+                legacyAccountKey: String? = nil) throws {
         self.accountKey = accountKey
 
         try FileManager.default.createDirectory(
@@ -51,6 +54,61 @@ public final class HistoryStore {
         try execute("PRAGMA journal_mode = WAL;")
         try execute("PRAGMA busy_timeout = 3000;")
         try migrate()
+
+        if let legacyAccountKey {
+            try adoptLegacyPartition(legacyAccountKey)
+        }
+    }
+
+    // MARK: - 认领老分区
+
+    /// 把老分区键下的行改名到新键下。
+    ///
+    /// 这一步**不能放进 `migrate()`**:分区键是 apiId 的 SHA-256,哈希单向,
+    /// 库里只有结果算不回去。映射只有「用户此刻切到哪个账户」那一层才知道,
+    /// 所以由调用方把两个键都传进来。
+    ///
+    /// 两道闸都必须过:
+    ///
+    /// · **新键下一行都没有** —— 有数据就说明已经迁过了,或这本来就是个新账户。
+    ///   再改一次名会把两份历史叠在一起,而叠了就分不开。
+    /// · **旧键下确实有** —— 没有就什么也不用做,不必平白开一个事务。
+    ///
+    /// 两个条件合起来让它幂等:重复打开同一个库,第二次会在第一道闸就退出。
+    ///
+    /// 新旧键相同时也由这两道闸挡住,不必另写一条:那种情况下
+    /// 「新键空」和「旧键非空」自相矛盾,必然在这里返回。
+    private func adoptLegacyPartition(_ legacy: String) throws {
+        guard try isEmpty(accountKey), !(try isEmpty(legacy)) else { return }
+
+        // 四张表一起改名。只改一半会让采样和它的额度行、token 桶分家 ——
+        // 那比不迁移更糟:曲线还在,但对应的用量凭空少了一截。
+        try transaction {
+            for table in Self.partitionedTables {
+                let stmt = try prepare("UPDATE \(table) SET account_key = ? WHERE account_key = ?;")
+                defer { sqlite3_finalize(stmt) }
+                sqlite3_bind_text(stmt, 1, accountKey, -1, SQLITE_TRANSIENT)
+                sqlite3_bind_text(stmt, 2, legacy, -1, SQLITE_TRANSIENT)
+                try step(stmt)
+            }
+        }
+    }
+
+    /// 按 account_key 分区的全部表。加新表时**必须同步加进来**,
+    /// 否则那张表会在迁移时被落下,数据留在一个再也访问不到的键底下。
+    private static let partitionedTables = [
+        "samples", "quota_samples", "token_days", "unattributed_deltas",
+    ]
+
+    /// 这个分区键下一行数据都没有吗
+    private func isEmpty(_ key: String) throws -> Bool {
+        for table in Self.partitionedTables {
+            let stmt = try prepare("SELECT 1 FROM \(table) WHERE account_key = ? LIMIT 1;")
+            defer { sqlite3_finalize(stmt) }
+            sqlite3_bind_text(stmt, 1, key, -1, SQLITE_TRANSIENT)
+            if sqlite3_step(stmt) == SQLITE_ROW { return false }
+        }
+        return true
     }
 
     deinit {

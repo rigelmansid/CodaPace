@@ -54,6 +54,23 @@ public struct ProviderCapabilities: OptionSet, Equatable, Hashable {
     public static let monthlyAggregate    = ProviderCapabilities(rawValue: 1 << 7)
 }
 
+// MARK: - 传输
+
+/// 「把一个请求发出去」这一步的唯一出口。
+///
+/// 存在的理由只有一个:**让失败路径可测**。认证失效、超时、对方换了内容类型 ——
+/// 这些恰恰是最该有测试、又最不可能靠真联网去构造的情形(EXT-009 明确要求覆盖)。
+/// 直连 `URLSession.shared` 的话,它们一条都测不到,而它们出问题时用户看到的
+/// 只是一句笼统的「请求失败」。
+///
+/// 生产路径默认就是 `URLSession.shared`,行为和从前一模一样。
+public protocol HTTPTransport {
+    func data(for request: URLRequest) async throws -> (Data, URLResponse)
+}
+
+/// `URLSession` 本来就有这个方法,声明一下即可
+extension URLSession: HTTPTransport {}
+
 // MARK: - 连接
 
 /// 一次抓取要用到的全部东西:**身份 + 凭据**。

@@ -119,6 +119,7 @@ public enum LangKey: String, CaseIterable {
     case errMissingCredential
     case setupRevealSecret, setupHideSecret, setupMustTestFirst
     case setupDescKey, setupSafetyIdentifier, setupSafetySecret
+    case setupPickYourProvider
     case errInvalidFieldFormat
     case errHistoryStore
 }
@@ -365,11 +366,20 @@ public enum L10n {
             .zhHans: "粘贴用量统计页面网址,或 API Key",
             .zhHant: "貼上用量統計頁面網址,或 API Key",
             .en: "Paste a usage-stats URL, or an API key"],
-        // 还认不出是哪家时说的话 —— 两条路都提一句,不替用户假定他用的是哪家
+        // 还认不出是哪家时说的话。**关键在于不要求用户先给自己归类** ——
+        // 「中转站」「订阅制供应商」是我们的词,不是用户的词;他知道的是
+        // 「我用的是 tu-zi」。所以这里只说「在下面找到你那家」,
+        // 具体要什么由那份列表逐行给出。
+        .setupPickYourProvider: [
+            .zhHans: "在下面找到你用的那家,粘贴它那一行要的东西:",
+            .zhHant: "在下面找到你用的那家,貼上它那一行要的東西:",
+            .en: "Find your provider below and paste what its line asks for:"],
+        // 认出来之后才说这句,所以不必再提「中转站」那个分类词 ——
+        // 用户此刻已经在状态行里看见那家的名字了
         .setupDesc1: [
-            .zhHans: "在浏览器里打开中转站的用量统计页面,把地址栏的完整网址复制过来;订阅制供应商则粘贴它给你的 API Key。",
-            .zhHant: "在瀏覽器裡開啟中轉站的用量統計頁面,把網址列的完整網址複製過來;訂閱制供應商則貼上它給你的 API Key。",
-            .en: "Open your relay’s usage-stats page and copy the full URL from the address bar — or, for a subscription provider, paste the API key it gave you."],
+            .zhHans: "在浏览器里打开它的用量统计页面,把地址栏的完整网址复制过来。",
+            .zhHant: "在瀏覽器裡開啟它的用量統計頁面,把網址列的完整網址複製過來。",
+            .en: "Open its usage-stats page in a browser and copy the full URL from the address bar."],
         .setupDescKey: [
             .zhHans: "粘贴这家供应商给你的 API Key。",
             .zhHant: "貼上這家供應商給你的 API Key。",

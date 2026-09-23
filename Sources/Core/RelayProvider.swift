@@ -15,7 +15,13 @@ public struct RelayProvider: UsageProviderAdapter {
 
     public static let id = "claude-relay-service"
 
-    public init() {}
+    /// 发请求那一步。测试换掉它来构造认证失效、超时这类失败路径(EXT-009);
+    /// 生产路径就是 `URLSession.shared`,和从前完全一致。
+    let transport: HTTPTransport
+
+    public init(transport: HTTPTransport = URLSession.shared) {
+        self.transport = transport
+    }
 
     public var providerID: String { Self.id }
     public var displayName: String { "claude-relay-service" }
@@ -149,7 +155,7 @@ public struct RelayProvider: UsageProviderAdapter {
         req.httpBody = try? JSONSerialization.data(withJSONObject: body)
         req.cachePolicy = .reloadIgnoringLocalCacheData
 
-        let (data, response) = try await URLSession.shared.data(for: req)
+        let (data, response) = try await transport.data(for: req)
 
         if let http = response as? HTTPURLResponse, !(200..<300).contains(http.statusCode) {
             throw APIError(L10n.format(.errHTTPFormat, language, http.statusCode))

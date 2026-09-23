@@ -48,11 +48,35 @@ public struct AccountIdentity: Equatable, Hashable {
         !providerID.isEmpty && !baseURL.isEmpty && !apiId.isEmpty
     }
 
-    /// 历史库的分区键,**只由 apiId 决定**。
+    /// 历史库的分区键:**providerID + apiId**,刻意不含 baseURL。
     ///
-    /// 和身份比较刻意不同口径:中继换了网址还是同一个 key 的同一份用量,历史不该被割成两半;
+    /// 不含 baseURL 的理由没变:中继换了网址还是同一个 key 的同一份用量,历史不该被割成两半;
     /// 但刷新的身份要连 baseURL 一起比 —— 网址变了就是发往别处的另一次请求,旧响应不能算数。
-    public var storageKey: String { AccountKey.derive(apiId: apiId) }
+    ///
+    /// **providerID 是 EXT-009 加进来的,起因是一个真实的碰撞风险。**
+    /// 从前只有一个适配器,键里不含 providerID 没有后果。接入第二家之后就有了:
+    /// tu-zi 的账户标识是响应里的 `key_id`,一个短整数(`4439` 这种),
+    /// 而自建中转站的 apiId 可以是任意字符串。两者撞上,**两个账户的历史会静默合并** ——
+    /// 曲线对不上、token 增量互相污染,而且合了就再也分不开。
+    ///
+    /// 老用户的历史靠 `legacyStorageKey` 惰性迁移,一条都不会丢。
+    public var storageKey: String { AccountKey.derive([providerID, apiId]) }
+
+    /// 加 providerID **之前**的历史分区键 —— 那时只由 apiId 派生。
+    ///
+    /// `HistoryStore` 拿它做一次惰性认领:新键下一行都没有、旧键下有,就地改名。
+    /// 惰性而不是启动时一次迁完,是因为哈希单向、库自己算不出这个映射,
+    /// 只有「用户切到哪个账户」的那一刻才同时知道两个键。代价是迁移时机分散,
+    /// 换来的是**没有任何一个账户的历史会被孤立**。
+    ///
+    /// **只有兜底适配器的账户才有老分区。** 存量配置里没有 providerID,
+    /// 读出来一律按兜底适配器算(见 `Config.account`),所以那个年代的历史
+    /// 只可能属于它。让别家也来认领,认领到的正好会是**另一家的历史** ——
+    /// 那恰恰是加 providerID 要修的那个碰撞,反而在迁移里又犯一遍。
+    public var legacyStorageKey: String? {
+        guard providerID == ProviderRegistry.fallback.providerID else { return nil }
+        return AccountKey.derive(apiId: apiId)
+    }
 
     /// 偏好存储的分区键,**连服务地址一起算**。
     ///
@@ -80,12 +104,14 @@ public struct AccountIdentity: Equatable, Hashable {
         AccountKey.derive([providerID, baseURL, apiId])
     }
 
-    // 上面两个键(storageKey / preferenceKey)都**刻意不含 providerID**。
+    // `preferenceKey` **仍然不含 providerID**,而且不需要含。
     //
-    // 把它算进去,现有用户的历史分区键会当场变掉 —— 等于把他们攒下的曲线全部丢掉。
-    // 带版本的数据库迁移是 EXT-009 的事,在那之前宁可留一个理论上的碰撞
-    // (两个供应商恰好用同一个 apiId 字符串),也不能悄悄孤立掉存量数据。
-    // 目前只有一个适配器,这个碰撞不可能发生。
+    // 它已经带了 baseURL,而两家供应商的服务地址不可能相同 —— 撞不上。
+    // storageKey 的那个碰撞恰恰来自它连 baseURL 都不含(有意的:中继换网址
+    // 不该割裂历史),于是只剩 apiId 一个维度在扛。
+    //
+    // 键加得越多,能撞上的越少,而每加一个都要付一次迁移的代价。
+    // 只在真会撞的地方加。
 }
 
 // MARK: - 刷新准入

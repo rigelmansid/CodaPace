@@ -159,10 +159,37 @@ final class ProviderScopedIdentityTests: XCTestCase {
 
     /// 两个分区键**刻意不含** providerID:算进去会让现有用户的历史分区键当场变掉,
     /// 等于把他们攒下的曲线全丢掉。带版本的迁移是 EXT-009 的事。
-    func testStorageAndPreferenceKeysDeliberatelyIgnoreTheProvider() {
+    /// **历史分区键必须区分供应商**(EXT-009)。
+    ///
+    /// tu-zi 的账户标识是响应里的 `key_id`,一个短整数;自建中转站的 apiId
+    /// 可以是任意字符串。两者撞上而分区键不分供应商的话,两个账户的历史会
+    /// 静默合并 —— 而且合了就再也分不开。
+    func testTheStorageKeyDistinguishesTheProvider() {
         let other = AccountIdentity(providerID: "p2", baseURL: a.baseURL, apiId: a.apiId)
-        XCTAssertEqual(a.storageKey, other.storageKey)
+        XCTAssertNotEqual(a.storageKey, other.storageKey)
+    }
+
+    /// 偏好键**刻意仍然不含 providerID**,而且不需要含:
+    /// 它已经带了 baseURL,两家供应商的服务地址不可能相同,撞不上。
+    /// 键加得越多能撞上的越少,而每加一个都要付一次迁移的代价。
+    func testThePreferenceKeyNeedsNoProviderBecauseItAlreadyHasTheEndpoint() {
+        let other = AccountIdentity(providerID: "p2", baseURL: a.baseURL, apiId: a.apiId)
         XCTAssertEqual(a.preferenceKey, other.preferenceKey)
+    }
+
+    /// 只有兜底适配器的账户才有老分区可认领。
+    ///
+    /// 存量配置里没有 providerID,一律按兜底适配器算,所以那个年代的历史
+    /// 只可能属于它。让别家也来认领,认领到的正好是**另一家的历史** ——
+    /// 那恰恰是加 providerID 要修的碰撞,会在迁移里再犯一遍。
+    func testOnlyTheFallbackProviderMayAdoptALegacyPartition() {
+        let legacy = AccountIdentity(providerID: ProviderRegistry.fallback.providerID,
+                                     baseURL: a.baseURL, apiId: a.apiId)
+        XCTAssertEqual(legacy.legacyStorageKey, AccountKey.derive(apiId: a.apiId))
+
+        let newcomer = AccountIdentity(providerID: TuziProvider.id,
+                                       baseURL: a.baseURL, apiId: a.apiId)
+        XCTAssertNil(newcomer.legacyStorageKey)
     }
 }
 

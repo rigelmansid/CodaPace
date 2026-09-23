@@ -89,8 +89,8 @@ let allSuites: [TestSuite] = [
 
     ("TuziSnapshotTests", [
         ("testBuildsThreeBucketsInDisplayOrder", { TuziSnapshotTests().testBuildsThreeBucketsInDisplayOrder() }),
-        ("testAmountsCarryNoCurrencyBecauseTheProviderDeclaredNone", { TuziSnapshotTests().testAmountsCarryNoCurrencyBecauseTheProviderDeclaredNone() }),
-        ("testDoesNotClaimToProvideCostAmounts", { TuziSnapshotTests().testDoesNotClaimToProvideCostAmounts() }),
+        ("testAmountsAreUSDPerTheProvidersOwnUsagePage", { TuziSnapshotTests().testAmountsAreUSDPerTheProvidersOwnUsagePage() }),
+        ("testClaimsToProvideCostAmounts", { TuziSnapshotTests().testClaimsToProvideCostAmounts() }),
         ("testDeclaresServerProvidedDailyReset", { TuziSnapshotTests().testDeclaresServerProvidedDailyReset() }),
         ("testNeedsNoDailyResetLearning", { TuziSnapshotTests().testNeedsNoDailyResetLearning() }),
         ("testDeclaresTheThingsItDoesNotProvide", { TuziSnapshotTests().testDeclaresTheThingsItDoesNotProvide() }),
@@ -131,6 +131,30 @@ let allSuites: [TestSuite] = [
         ("testTheRelayCanBeSavedWithoutVerifying", { ResolvedForSavingTests().testTheRelayCanBeSavedWithoutVerifying() }),
     ]),
 
+    ("AuthFailureTests", [
+        ("testRelaySurfacesAnUnauthorizedStatus", { AuthFailureTests().testRelaySurfacesAnUnauthorizedStatus() }),
+        ("testTuziSurfacesAnUnauthorizedStatus", { AuthFailureTests().testTuziSurfacesAnUnauthorizedStatus() }),
+        ("testAServerSideFailureInsideA200IsSurfacedVerbatim", { AuthFailureTests().testAServerSideFailureInsideA200IsSurfacedVerbatim() }),
+    ]),
+
+    ("TransportFailureTests", [
+        ("testATimeoutReachesTheUserAsATimeout", { TransportFailureTests().testATimeoutReachesTheUserAsATimeout() }),
+        ("testAConnectionFailureReachesTheUserAsANetworkError", { TransportFailureTests().testAConnectionFailureReachesTheUserAsANetworkError() }),
+        ("testAnHTMLPageAtTheRightURLGivesAReadableError", { TransportFailureTests().testAnHTMLPageAtTheRightURLGivesAReadableError() }),
+    ]),
+
+    ("RequestShapeTests", [
+        ("testTuziSendsTheKeyAsABearerToken", { RequestShapeTests().testTuziSendsTheKeyAsABearerToken() }),
+        ("testNoRequestIsSentWithoutACredential", { RequestShapeTests().testNoRequestIsSentWithoutACredential() }),
+        ("testTheRelaySendsNoAuthorizationHeader", { RequestShapeTests().testTheRelaySendsNoAuthorizationHeader() }),
+    ]),
+
+    ("TransportHappyPathTests", [
+        ("testTheRelayStillBuildsASnapshotThroughTheSeam", { TransportHappyPathTests().testTheRelayStillBuildsASnapshotThroughTheSeam() }),
+        ("testTuziStillBuildsASnapshotThroughTheSeam", { TransportHappyPathTests().testTuziStillBuildsASnapshotThroughTheSeam() }),
+        ("testVerifyReportsTheAccountIDFromTheSameRequest", { TransportHappyPathTests().testVerifyReportsTheAccountIDFromTheSameRequest() }),
+    ]),
+
     ("ProviderRegistryTests", [
         ("testResolvesByProviderID", { ProviderRegistryTests().testResolvesByProviderID() }),
         ("testUnknownOrMissingProviderIDFallsBack", { ProviderRegistryTests().testUnknownOrMissingProviderIDFallsBack() }),
@@ -141,7 +165,9 @@ let allSuites: [TestSuite] = [
 
     ("ProviderScopedIdentityTests", [
         ("testProviderIDIsPartOfTheIdentity", { ProviderScopedIdentityTests().testProviderIDIsPartOfTheIdentity() }),
-        ("testStorageAndPreferenceKeysDeliberatelyIgnoreTheProvider", { ProviderScopedIdentityTests().testStorageAndPreferenceKeysDeliberatelyIgnoreTheProvider() }),
+        ("testTheStorageKeyDistinguishesTheProvider", { ProviderScopedIdentityTests().testTheStorageKeyDistinguishesTheProvider() }),
+        ("testThePreferenceKeyNeedsNoProviderBecauseItAlreadyHasTheEndpoint", { ProviderScopedIdentityTests().testThePreferenceKeyNeedsNoProviderBecauseItAlreadyHasTheEndpoint() }),
+        ("testOnlyTheFallbackProviderMayAdoptALegacyPartition", { ProviderScopedIdentityTests().testOnlyTheFallbackProviderMayAdoptALegacyPartition() }),
     ]),
 
     ("PathPrefixTests", [
@@ -280,6 +306,12 @@ let allSuites: [TestSuite] = [
         ("testUpgradingFromV3ExpandsTheFixedColumnsIntoBuckets", { SchemaMigrationTests().testUpgradingFromV3ExpandsTheFixedColumnsIntoBuckets() }),
         ("testV3RowsWithoutLimitsStayUnknownAfterMigration", { SchemaMigrationTests().testV3RowsWithoutLimitsStayUnknownAfterMigration() }),
         ("testTheV4ExpansionDoesNotRunTwice", { SchemaMigrationTests().testTheV4ExpansionDoesNotRunTwice() }),
+        ("testALegacyPartitionIsAdoptedUnderTheNewKey", { SchemaMigrationTests().testALegacyPartitionIsAdoptedUnderTheNewKey() }),
+        ("testEveryPartitionedTableIsCarriedOver", { SchemaMigrationTests().testEveryPartitionedTableIsCarriedOver() }),
+        ("testAdoptingIsIdempotentAcrossReopens", { SchemaMigrationTests().testAdoptingIsIdempotentAcrossReopens() }),
+        ("testAPartitionThatAlreadyHasDataIsNeverMergedWith", { SchemaMigrationTests().testAPartitionThatAlreadyHasDataIsNeverMergedWith() }),
+        ("testWithoutALegacyKeyNothingIsAdopted", { SchemaMigrationTests().testWithoutALegacyKeyNothingIsAdopted() }),
+        ("testAnIdenticalLegacyKeyIsANoOp", { SchemaMigrationTests().testAnIdenticalLegacyKeyIsANoOp() }),
         ("testReopeningAnAlreadyMigratedStoreIsFine", { SchemaMigrationTests().testReopeningAnAlreadyMigratedStoreIsFine() }),
     ]),
 
