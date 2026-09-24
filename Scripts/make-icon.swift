@@ -19,16 +19,25 @@ import UniformTypeIdentifiers
 
 // MARK: - 配色
 
+/// 全程用 sRGB,颜色值才等于落进 PNG 的像素值。
+///
+/// 从前用的是设备色(`DeviceRGB` / `CGColor(red:…)`),导出时被换算成 sRGB,
+/// 整体偏淡 —— 写的是 #FC7828,落盘成了 #FF8D33。对着稿子取色时才发现。
+private let srgb = CGColorSpace(name: CGColorSpace.sRGB)!
+
 private func rgb(_ r: Double, _ g: Double, _ b: Double, _ a: Double = 1) -> CGColor {
-    CGColor(red: r, green: g, blue: b, alpha: a)
+    CGColor(srgbRed: r, green: g, blue: b, alpha: a)
 }
 
-private let backgroundTop = rgb(0.976, 0.961, 0.933)     // 米白
-private let backgroundBottom = rgb(0.949, 0.929, 0.894)
-private let trackColor = rgb(0.847, 0.831, 0.788)        // 环的底圈
-private let slashColor = rgb(0.831, 0.812, 0.769)        // 比底圈再深一点,才不糊进背景
-private let quotaColor = rgb(0.949, 0.451, 0.220)        // 外环:额度
-private let timeColor = rgb(0.263, 0.576, 0.898)         // 内环:时间
+// 2026-09-24 按用户给的新图标稿重取:橙、蓝更饱和,底圈和斜杠去掉了偏黄、同色。
+// 取的是稿子的**原始像素值**的直方图主色。那张 PNG 不带色彩配置,
+// 先按设备色读再转 sRGB 会整体偏淡 —— 第一次就这么取错过。
+private let backgroundTop = rgb(0.976, 0.965, 0.941)     // 米白 #F9F6F0
+private let backgroundBottom = rgb(0.961, 0.949, 0.922)
+private let trackColor = rgb(0.847, 0.843, 0.824)        // 环的底圈 #D8D7D2
+private let slashColor = trackColor                      // 斜杠落在米白底上,和底圈同色就够分得开
+private let quotaColor = rgb(0.988, 0.471, 0.157)        // 外环:额度 #FC7828
+private let timeColor = rgb(0.235, 0.635, 0.988)         // 内环:时间 #3CA2FC
 
 // MARK: - 几何(全部是画布边长的比例)
 
@@ -40,13 +49,13 @@ private let outerWidth = 0.070
 private let innerRadius = 0.163
 private let innerRatio = 0.80              // 内环线宽 / 外环线宽,和 app 一致
 
-private let slashHalfLength = 0.090
-private let slashWidth = 0.042
-private let slashAngle = 60.0              // 比 45° 陡,更接近字体里的 /
+private let slashHalfLength = 0.084
+private let slashWidth = 0.052          // 新稿比旧版粗,约为外环线宽的四分之三
+private let slashAngle = 55.0              // 比 45° 陡,更接近字体里的 /(新稿比旧版 60° 略平)
 
 /// 画多少弧。这是展示用的示意值,不代表真实用量。
-private let outerArcRatio = 0.72
-private let innerArcRatio = 0.45
+private let outerArcRatio = 0.73
+private let innerArcRatio = 0.46
 
 // MARK: - 绘制
 
@@ -56,7 +65,7 @@ private func makeIcon(side: Int) -> CGImage? {
     guard let context = CGContext(
         data: nil, width: side, height: side,
         bitsPerComponent: 8, bytesPerRow: 0,
-        space: CGColorSpaceCreateDeviceRGB(),
+        space: srgb,
         bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
     ) else { return nil }
 
@@ -84,7 +93,7 @@ private func makeIcon(side: Int) -> CGImage? {
     context.saveGState()
     context.addPath(squircle)
     context.clip()
-    if let gradient = CGGradient(colorsSpace: CGColorSpaceCreateDeviceRGB(),
+    if let gradient = CGGradient(colorsSpace: srgb,
                                  colors: [backgroundTop, backgroundBottom] as CFArray,
                                  locations: [0, 1]) {
         context.drawLinearGradient(gradient,
