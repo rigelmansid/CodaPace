@@ -1,116 +1,125 @@
-# CodaPace
+<div align="center">
 
-[English](README.md) · **简体中文**
+<img src="docs/images/icon.png" width="128" alt="CodaPace 图标">
+
+# CodaPace
 
 **知道自己撑不撑得到下一次重置。**
 
-一个 macOS 菜单栏应用,盯的不只是「你花了多少」,而是「照这个速度,能不能撑到额度重置」。
+一个盯 API 额度的 macOS 菜单栏应用。它告诉你花了多少，也告诉你照这个速度，能不能撑到下次重置。
 
-> **前提:** CodaPace 从运行 [claude-relay-service](https://github.com/Wei-Shaw/claude-relay-service)
-> 的中转站读取用量。它**用不了** Anthropic 官方 API、Bedrock、Vertex 或其他网关 ——
-> 详见[系统要求](#系统要求)。
+[![macOS 13+](https://img.shields.io/badge/macOS-13%2B-black?logo=apple)](#安装)
+[![Apple Silicon](https://img.shields.io/badge/Apple%20Silicon-arm64-black)](#安装)
+[![Swift](https://img.shields.io/badge/Swift-5-F05138?logo=swift&logoColor=white)](#开发)
+[![Release](https://img.shields.io/github/v/release/rigelmansid/CodaPace)](https://github.com/rigelmansid/CodaPace/releases/latest)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue)](LICENSE)
 
-<p align="center">
-  <img src="docs/images/menubar-popover.png" width="320"
-       alt="CodaPace 面板:四条额度、速度判断与历史图表">
-</p>
+[English](README.md) · **简体中文**
 
----
+</div>
 
-## 为什么又一个用量监控
+<table>
+  <tr>
+    <th>菜单栏面板</th>
+    <th>设置与已存档账户</th>
+    <th>用量历史</th>
+  </tr>
+  <tr>
+    <td><img src="docs/images/popover.png" width="240" alt="面板：今日额度、速度判断、趋势与 token 图表"></td>
+    <td><img src="docs/images/settings.png" width="300" alt="设置窗口：支持的服务与已存档账户列表"></td>
+    <td><img src="docs/images/history.png" width="300" alt="历史窗口：额度趋势曲线与按天 token 柱状图"></td>
+  </tr>
+</table>
 
-大多数用量工具回答的是「我用了多少」。这个数字本身**没法据以行动**:「剩余 61%」在你知道这段周期还剩多久之前毫无意义。早上九点看它很宽裕,晚上十一点看它无关紧要。
-
-CodaPace 把两者并排放在一起:
-
-```
-pace = 剩余额度% − 剩余时间%
-```
-
-负数意味着你消耗得比时钟快 —— 会提前用完。这是一个**决策依据**,不是一个统计数字:它告诉你现在该不该开始那个大重构,还是等重置。
-
-菜单栏同时承载两个维度:
-
-| | |
-|---|---|
-| **数字** | 数量 —— 还剩多少 |
-| **副标题** | 速率 —— *正常速度* / *超速* |
-| **外环** | 剩余额度,按状态着色 |
-| **内环** | 剩余时间 |
-
-两个正交的事实。副标题从不复述数字 —— 而当某条额度没有重置周期(账户总额度)、速率无从谈起时,它会退回显示剩余金额,而不是硬凑一个算不出来的判断。
+截图为英文界面。
 
 ---
 
-## 设计立场:不编造数据
+## 为什么是 CodaPace
 
-这是最值得去读源码的部分。用量看板普遍会在空档处插值、给缺失的日子补零、把曲线抹平 —— 而读者根本分不清哪些是实测、哪些是装饰。CodaPace 一以贯之地拒绝这么做:
+- **看速度，不只看用量。** 「还剩 61%」本身说明不了什么，要看这个周期还剩多少时间。早上 9 点这很宽裕，
+  晚上 11 点就无所谓了。CodaPace 把两者放在一起比：`pace = 剩余额度% − 剩余时间%`。为负就是会在重置前用完。
+- **给的是决定，不是统计。** 这个判断告诉你：那个大重构是现在就开，还是等重置之后。
+- **菜单栏里两个事实。** 数字是还剩多少，下面那行小字是用得快不快（*正常速度* / *超速*）。
+  外环是额度，内环是时间。
+- **不编造数据。** 空档就是空档，推算的会标出来，没有重置周期的额度就不给判断，而不是编一个。
+  见[设计立场](#设计立场不编造数据)。
 
-- **没有时间窗口就不做速度判断。** 账户总额度没有重置周期,那就干脆不给判断,而不是编一个。
-- **空档画成阴影,绝不用实线连过去。** app 没运行的时段没有采样,中间发生了什么是真的不知道。
-- **实线代表实测,虚线代表推断。** 两种视觉明确区分,各自只有一个含义。
-- **重置处曲线直接断开。** 额度跳回满格是一个瞬时的、已知的事件,不是一段陡坡 —— 在那里画斜线等于暗示它是渐变过去的。
-- **推断出来的重置时刻标注「(推算)」** —— 并且在 app 从历史中观测到一次真实重置后自动修正。
-- **跨越 30 分钟以上空档的 token 增量直接丢弃。** 那段用量横跨的时间太长,归给任何一天都是猜的,所以宁可不计。
-- **不限额度不画百分比。** 没有上限,就没有「剩余百分比」这回事。
+---
 
-代价是看得见的:图上会有洞,尤其是刚装上那几天。**那才是诚实的样子。**
+## 支持的服务
+
+| 服务 | 粘贴什么 | 额度 | 凭据存在哪 |
+|---|---|---|---|
+| [claude-relay-service](https://github.com/Wei-Shaw/claude-relay-service) | 用量统计页面的网址，`https://your-relay.example.com/admin-next/api-stats?apiId=…` | 总额度、今日、本周 Opus、限流窗口 | 偏好设置。`apiId` 是只读标识，发不了请求 |
+| [tu-zi](https://api.tu-zi.com/) | 一把 API Key，`sk-…` | 今日、本周、本月 | macOS 钥匙串，因为这把 key 能花钱 |
+
+**不支持** Anthropic 官方 API、Amazon Bedrock、Google Vertex AI，以及 LiteLLM、OpenRouter 这类网关。
+它们的用量接口各不相同，官方 API 更是根本没有按 key 查额度的接口。
+
+每个服务的对接都只在一个适配器文件里。pace 计算、重置推算、历史、图表、提醒这些全部共用。
 
 ---
 
 ## 功能
 
-- 四条额度一览 —— 总额度、今日、本周 Opus、限流窗口,每条都带**真实金额**而不只是百分比
-- 两种菜单栏样式:同心双环或堆叠横条
-- 本地 SQLite 用量历史:额度曲线与按天 token 柱状图,另有可缩放的历史窗口
-- 额度提醒(*额度不足* / *消费偏快*),**按重置周期去重**,所以 60 秒一次的刷新不会变成 60 秒一次的骚扰
-- 状态从不只靠颜色传达 —— 每个状态都有图标或文字
-- 简体中文、繁體中文、English,切换无需重启
-- 倒计时每 30 秒本地重算一次,不依赖网络刷新
+### 额度与速度
+- 菜单栏显示的那条额度放在面板顶部，其余的收进「**其他额度**」
+- 百分比之外还有真实金额
+- 菜单栏可以固定显示某一条额度，也可以自动挑最紧的那条
+- 倒计时每 30 秒在本地重算一次，不依赖网络刷新
 
----
+### 多账户
+- 「**测试连接**」通过的账户都可以存档，名字自己起
+- 在设置窗口里切换已存档的账户。历史、学到的重置时刻、提醒记录都按账户分开存，切回来什么都不丢
+- 删除存档会连同钥匙串里的 key 一起删掉，历史数据留在本机
 
-## 先例与致谢
+### 历史
+- 本地 SQLite 存历史：额度曲线和按天的 token 柱状图，窗口大小可调
+- 可看最近 24 小时、7 天、14 天、30 天
 
-CodaPace 相当程度上受惠于 [CodexMeter](https://github.com/raycalrui/CodexMeter) —— 一个监控 Codex 额度的菜单栏应用。它公开的设计文档同时塑造了本项目的界面和若干规则:
+### 菜单栏与提醒
+- 两种样式：双环或横条
+- 「额度不足」和「用得太快」两种提醒，按重置周期去重，60 秒一次的刷新不会变成 60 秒一条通知
+- 状态从不只靠颜色表达，每种状态都有图标或文字
 
-- **pace 这个想法本身** —— 用剩余额度对比剩余时间,而不是只报告消耗量。整个 app 都是围绕这个概念建起来的。
-- 同心双环指示器,以及「拿不到重置时间就省略内环」这条规则。
-- 用分隔线而非嵌套卡片来划分面板。
-- 把纯逻辑拆成一个可独立测试的模块。
-- 几个具体参数:15 分钟锚点采样、30 分钟空档阈值、20% 危险线、按重置周期去重通知。
-- 用图标或文字而非颜色来传达状态。
-
-**没有阅读也没有复制 CodexMeter 的任何源码** —— 只看了它公开的 README 和架构文档。这里的代码全部从零写起。
-
-两者不是互相的替代品。CodexMeter 通过启动本地 `codex app-server` 子进程、经 stdio 走 JSON-RPC 来读取 Codex 额度;CodaPace 读的是 claude-relay-service 的 HTTP 接口。**任何一方都无法对接另一方的后端。**
-
-CodaPace 自己走的路:
-
-- **真实金额**而不只是百分比 —— 中转站接口会报告消费额,Codex 的不会
-- **从历史中自学日重置时刻**,因为那个接口不提供,并在学到之前如实标注「(推算)」
-- **区分两种不连续**:空档用虚线连接,因为中间未知;重置不连,因为那一跳是瞬时且已知的 —— 取而代之的是从边界处 100% 起的一段虚线,开启新周期
-- **完全不依赖 Xcode 构建和测试**,直接用 `swiftc` 加一个小型的 XCTest 兼容测试框架
-
----
-
-## 系统要求
-
-- **macOS 13 及以上,仅 Apple Silicon。** 构建产物是 `arm64`,Intel Mac 无法运行。
-- **一个运行 [claude-relay-service](https://github.com/Wei-Shaw/claude-relay-service) 的中转站。**
-
-第二条才是关键。CodaPace 读取两个接口(`/apiStats/api/user-stats` 和
-`/apiStats/api/batch-stats`),依赖该项目定义的响应结构。它**用不了**:
-
-- Anthropic 官方 API —— 它没有对应的按 key 查额度的接口
-- Amazon Bedrock 或 Google Vertex AI
-- LiteLLM、OpenRouter 等其他网关,它们的用量接口结构不同
-
-只有响应模型和这两个网络调用是特定于中转站的。其余部分 —— pace 计算、重置周期推算、历史存储、图表序列、告警策略 —— 都与服务商无关,并且位于一个可独立测试的模块中。
+### 语言
+- 简体中文、繁体中文、English，切换不用重启
 
 ---
 
 ## 安装
+
+### 命令行安装
+
+三条命令：下载最新版，解压到「应用程序」，打开。
+
+```bash
+curl -fL -o /tmp/CodaPace.zip https://github.com/rigelmansid/CodaPace/releases/latest/download/CodaPace-arm64.zip
+```
+
+```bash
+ditto -x -k /tmp/CodaPace.zip /Applications
+```
+
+```bash
+open /Applications/CodaPace.app
+```
+
+这样装的副本不带隔离标记（`curl` 不给下载的文件打这个标记），所以打开时 macOS 不会拦。
+升级时先退出 CodaPace，再把这三条命令跑一遍。
+
+### 下载安装
+
+从 [Releases](https://github.com/rigelmansid/CodaPace/releases/latest) 下载 `CodaPace-arm64.zip`，
+解压后把 `CodaPace.app` 拖进「应用程序」。
+
+发布版是 **ad-hoc 签名、未经公证**的，所以从浏览器下载的副本第一次打开会被拦：
+
+1. **按住 Control 点按 app，选「打开」。** 有些 macOS 版本这样就够了。
+2. 还是打不开的话，去「**系统设置 → 隐私与安全性**」，在关于 CodaPace 的提示旁点「**仍要打开**」，再启动一次。
+
+每个副本只需要一次。用上面的命令行安装可以免掉这一步。
 
 ### 从源码构建
 
@@ -121,49 +130,89 @@ cd CodaPace
 open build/CodaPace.app
 ```
 
-不需要 Xcode,Command Line Tools 就够。
+有 Command Line Tools 就够，不需要 Xcode。自己构建的 app 不带隔离标记，可以直接打开。
 
-自己编译出来的 app 可以正常双击打开 —— macOS 只会隔离从浏览器或其他机器传来的应用。
+### 首次设置
 
-### 如果你拿到的是别人编译好的版本
-
-构建产物是 **ad-hoc 签名、未经公证**的(`Signature=adhoc`,没有 Team ID)。通过下载、隔空投送或从其他机器拷贝来的副本会带上隔离标记,Gatekeeper 会拒绝打开。
-
-打开方法:
-
-1. **按住 Control 点击 app → 选「打开」。** 在部分 macOS 版本上这样就够了。
-2. 如果仍被拒绝,打开**「系统设置 → 隐私与安全性」**,往下翻到安全性区域,在被阻止的应用那条旁边点**「仍要打开」**,然后再启动一次。
-
-两种方式都只需操作一次。要彻底消除这个摩擦需要 Developer ID 证书和公证,本项目没有 —— 如果你介意这个警告,建议直接从源码构建。
-
-### 配置
-
-CodaPace 首次启动会自动弹出配置窗口。在浏览器里打开你的中转站用量统计页面,把完整地址复制进去:
-
-```
-https://你的中转站域名/admin-next/api-stats?apiId=…
-```
-
-保存前先点**「测试连接」** —— 它会真的发一次请求但不落盘,所以网址或 apiId 填错会当场报出来,而不是保存之后才发现菜单栏一直显示「离线」。
+首次启动会打开设置窗口。按你那家服务那一行的提示粘贴（见[支持的服务](#支持的服务)），点「**测试连接**」。
+它会真发一次请求、但什么都不保存，填错的网址或 key 当场就会报出来。然后点「**保存**」。
+勾着「**同时存档**」就会把这个账户加进已存档列表。
 
 ---
 
-## 数据与隐私
+## 设计立场：不编造数据
 
-- **CodaPace 只与一个主机通信:你填入的中转站地址。** 没有埋点,没有其他网络请求。
-- **`apiId` 以明文存储**在 `~/Library/Preferences/com.hesher.codapace.plist`,和 baseURL 放在一起。它是一个**只读的统计标识**:既不能发起 API 请求,也拿不到你的 API Key。它曾经存在钥匙串里,但钥匙串的访问权限绑定代码签名身份,而 ad-hoc 签名**每次构建都会变** —— 结果是 macOS 每次启动都索要你的电脑密码。对一个未公证的应用来说,那个弹窗和恶意软件毫无区别,而它保护的东西并不值得这个代价。
-- **历史数据存在本地**,位于 `~/Library/Application Support/CodaPace/History.sqlite`,按 `apiId` 的 SHA-256 分区,所以换 key 后历史互不干扰。**数据库里不会写入 apiId 原文。**
+用量面板常常跨过空档插值、拿 0 补缺、把曲线抹平，而看的人分不出哪些是量出来的、哪些是装饰。
+CodaPace 一贯拒绝这样做：
+
+- **没有时间窗口就不给速度判断。** 没有重置周期的额度不显示判断。
+- **空档画成阴影，绝不用实线连起来。** app 没运行的时候没有采样，中间发生了什么无从得知。
+- **实线是观测到的，虚线是推算的。**
+- **重置边界处曲线断开。** 额度跳回满格是一个瞬时、已知的事件，不是一段陡坡。
+- **推算的重置时刻标注「（推算）」**，观测到真实的重置之后自动更正。
+- **跨午夜的 token 用量不拆到两天。** 总量知道，怎么分不知道，所以记成「未归属」，而不是去猜。
+  同一天之内的用量全部算在那一天。
+- **不知道单位就不猜单位。** 服务没说数字是什么单位，就显示裸数字，不默认当成美元。
+
+代价看得见：图表上有窟窿，刚开始用的时候尤其多。这才是如实的样子。
 
 ---
 
-## 已知限制
+## 常见问题
 
-- **历史从你安装那天开始。** 中转站接口只报告当前值,没有历史接口。不做任何回填。
-- **app 没运行时没有采样。** 那些时段在图上显示为阴影空档。
-- **日额度的重置时刻是推断的。** 接口不提供,所以 CodaPace 先假定为本地 0 点、标注「(推算)」,并在首次观测到计数器归零时学到真实时刻。
-- **图表尚无悬停提示。** `chartXSelection` 需要 macOS 14;手写实现还没做。
-- **限流窗口的超速提醒可能偏吵。** 该窗口每小时重置,去重键随之变化 —— 持续高负载理论上会每小时提醒一次。这条额度的**低额度**提醒值得保留(马上要被限流了),超速提醒大概不值得。尚未修复。
-- **仅 Apple Silicon**,且**未经公证**。
+<details>
+<summary><b>macOS 提示无法打开这个 app</b></summary>
+
+发布版没有经过公证。改用[命令行安装](#命令行安装)可以免掉这个提示，或者按[下载安装](#下载安装)里的两步操作。
+</details>
+
+<details>
+<summary><b>切到 tu-zi 账户时，为什么 macOS 要我输密码？</b></summary>
+
+那是钥匙串在问能不能让 CodaPace 读取存着的 key，点「**始终允许**」即可。
+因为 app 是 ad-hoc 签名的，每个新版本在钥匙串看来都是一个新程序，所以每次升级后，每把存着的 key 会各问一次。
+</details>
+
+<details>
+<summary><b>CodaPace 存了哪些数据，会发到哪里？</b></summary>
+
+- **网络：** 只访问你填的中转站网址，tu-zi 账户则只访问 `coding.tu-zi.com`。没有统计上报，不连其他任何地址。
+- **偏好设置**（`~/Library/Preferences/com.hesher.codapace.plist`）：中转站网址和 `apiId`、
+  已存档账户列表（名字和标识，不含 key），以及显示设置。
+- **钥匙串：** tu-zi 的 API Key，服务名为 `CodaPace`，只存在这台 Mac 上。
+- **历史**（`~/Library/Application Support/CodaPace/History.sqlite`）：按「服务 + 账户标识」的哈希分区，
+  原始标识从不写进数据库。
+</details>
+
+<details>
+<summary><b>图表上为什么到处是空档？</b></summary>
+
+历史是 app 自己定时采样攒出来的。这些服务只给当前值，所以安装之前的数据不存在，app 没运行的时段也没有记录。
+这些时段画成阴影，不做填补。
+</details>
+
+<details>
+<summary><b>重置时刻为什么标着「推算」？</b></summary>
+
+claude-relay-service 不公布每天几点重置。CodaPace 先假定是本地零点，等观测到计数归零后，
+记住这个账户真实的重置时刻。tu-zi 会直接告诉重置时刻，所以从来不需要推算。
+</details>
+
+<details>
+<summary><b>能同时看两个账户吗？</b></summary>
+
+不能。菜单栏只放得下一个数字，面板、历史、提醒也都跟着当前账户走。存档功能让切换变快，以此代替。
+</details>
+
+---
+
+## 已知局限
+
+- **历史从安装那天开始。** 不会补之前的数据。
+- **app 没运行时没有采样。** 这些时段显示为阴影空档。
+- **图表没有悬停提示。**
+- **短周期额度的超速提醒可能重复。** 限流窗口每小时重置一次，持续高强度使用时可能每小时提醒一次。
+- **只支持 Apple Silicon，未经公证**，且每次升级后钥匙串会再次询问（见常见问题）。
 
 ---
 
@@ -175,29 +224,58 @@ swift run CoreTests             # 411 个单元测试
 swift Scripts/make-icon.swift   # 重新生成 Resources/AppIcon.icns
 ```
 
-### 目录结构
+<details>
+<summary><b>目录结构</b></summary>
 
 ```
-Sources/Core/    纯逻辑 —— 不含 AppKit、不含 SwiftUI,完全可单测
-Sources/App/     SwiftUI 视图、菜单栏绘制、网络、通知
+Sources/Core/    纯逻辑 —— 不依赖 AppKit / SwiftUI，全部有单元测试
+Sources/App/     SwiftUI 视图、菜单栏绘制、网络、通知、钥匙串
 Tests/CoreTests/ 测试框架与用例
 Scripts/         图标生成器
+docs/            项目须知与设计 backlog
 ```
 
-`Package.swift` 只暴露 `Sources/Core`,因此逻辑可以脱离 UI 测试。`build.sh` 则把 `Core` 和 `App` 编译成同一个模块,两边共用同一份源码。
+`Package.swift` 只暴露 `Sources/Core`，所以逻辑可以脱离界面测试。`build.sh` 把 `Core` 和 `App` 编成同一个模块。
+</details>
 
-### 关于测试框架
+<details>
+<summary><b>关于测试框架</b></summary>
 
-Command Line Tools 不提供 `XCTest.framework`(它只随 Xcode 分发),所以本机跑不了 `swift test`。`Tests/CoreTests/TestSupport.swift` 提供了一套与 XCTest 同名同签名的断言函数,配合 `TestRegistry.swift` 里的显式用例清单。**测试用例的正文和标准 XCTest 写法完全一致**;该文件头部记录了将来装了 Xcode 后如何用四步切回去。
+Command Line Tools 不带 `XCTest.framework`（它只随 Xcode 分发），所以 `swift test` 跑不了。
+`Tests/CoreTests/TestSupport.swift` 提供了和 XCTest 同名同签名的断言函数，外加 `TestRegistry.swift` 里的显式登记。
+测试用例的写法和在 XCTest 下完全一样。
+</details>
 
-### 关于图标
+<details>
+<summary><b>图标</b></summary>
 
-`Scripts/make-icon.swift` 用 CoreGraphics 渲染图标,再由 `iconutil` 打包。所有尺寸都表达为画布边长的比例,因此从 16pt 到 1024pt 这十个尺寸是**同一份逻辑各自渲染**的,而不是把一张大图缩小 —— 这很重要,因为决定一个图标能不能用的是 32pt 和 16pt,不是 1024pt。
-
-图形本身就是菜单栏指示器的放大版:外环表示额度、内环表示时间、内环线宽取外环的 80% —— 和 app 里用的是同一个比例。**你在程序坞里看到的和在菜单栏里看到的是同一个东西。**
+`Scripts/make-icon.swift` 用 CoreGraphics 按 sRGB 绘制图标，再用 `iconutil` 打包。所有尺寸都表示为画布边长的比例，
+所以从 16 到 1024 像素的十个尺寸都是同一套逻辑画出来的，不是把一张大图缩小。
+图形就是菜单栏指示器的放大版：外环是额度，内环是时间。
+</details>
 
 ---
 
-## 许可
+## 致谢与参考
 
-MIT
+CodaPace 在很大程度上受益于 [CodexMeter](https://github.com/raycalrui/CodexMeter)，一个监控 Codex 额度的菜单栏应用。
+它公开的设计说明影响了本应用的界面和好几条规则：
+
+- **pace 这个想法本身**，拿剩余额度和剩余时间做比较。整个应用都是围绕它建的。
+- 双同心环指示器，以及重置时刻未知时省略内环。
+- 面板用分隔线划分区域，而不是层层嵌套的卡片。
+- 把纯逻辑拆成可以单独测试的模块。
+- 具体参数：15 分钟锚点采样、30 分钟空档阈值、20% 危险线、按重置周期对提醒去重。
+- 状态用图标或文字表达，不只靠颜色。
+
+**没有阅读或复制过 CodexMeter 的任何源码**，只参考了它公开的 README 和架构说明。这里的一切都是从零写的。
+两个应用读的是不同的后端，不能互相替代。
+
+CodaPace 自己走的路：显示真实金额、从观测历史里学出每天的重置时刻、区分空档（中间未知，用虚线桥接）和重置
+（瞬时且已知的跳变）、用同一套适配器接口接入多个服务，以及不用 Xcode 构建。
+
+---
+
+## 许可证
+
+[MIT](LICENSE)

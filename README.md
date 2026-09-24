@@ -1,146 +1,134 @@
-# CodaPace
+<div align="center">
 
-**English** · [简体中文](README.zh-CN.md)
+<img src="docs/images/icon.png" width="128" alt="CodaPace icon">
+
+# CodaPace
 
 **Know whether you'll make it to the reset.**
 
-A macOS menu bar app for watching Claude API quota — not just how much you've spent,
-but whether you're on track to reach the next reset without running dry.
+A macOS menu bar app for API quota. It shows how much you've spent, and whether you're on track
+to reach the next reset without running dry.
 
-> **Prerequisite:** CodaPace reads usage from a relay running
-> [claude-relay-service](https://github.com/Wei-Shaw/claude-relay-service). It does **not** work with
-> the official Anthropic API, Bedrock, Vertex, or other gateways — see
-> [Requirements](#requirements).
+[![macOS 13+](https://img.shields.io/badge/macOS-13%2B-black?logo=apple)](#install)
+[![Apple Silicon](https://img.shields.io/badge/Apple%20Silicon-arm64-black)](#install)
+[![Swift](https://img.shields.io/badge/Swift-5-F05138?logo=swift&logoColor=white)](#development)
+[![Release](https://img.shields.io/github/v/release/rigelmansid/CodaPace)](https://github.com/rigelmansid/CodaPace/releases/latest)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue)](LICENSE)
 
-<p align="center">
-  <img src="docs/images/menubar-popover.png" width="320"
-       alt="CodaPace popover showing four quotas with pace verdicts and history charts">
-</p>
+**English** · [简体中文](README.zh-CN.md)
 
----
+</div>
 
-## Why another usage monitor
-
-Most usage monitors answer *how much have I used*. On its own, that number can't be acted on:
-**61% remaining** means nothing until you know how much of the period is left. At 9 a.m. it's
-comfortable. At 11 p.m. it's irrelevant.
-
-CodaPace puts the two side by side:
-
-```
-pace = quota remaining % − time remaining %
-```
-
-A negative value means you're consuming faster than the clock — you'll run out early. That is a
-decision, not a statistic: it tells you whether to start the big refactor now or wait for the reset.
-
-The menu bar carries both dimensions at once:
-
-| | |
-|---|---|
-| **Number** | quantity — how much is left |
-| **Caption** | rate — *On pace* / *Over pace* |
-| **Outer ring** | quota remaining, colored by status |
-| **Inner ring** | time remaining |
-
-Two orthogonal facts. The caption never restates the number — and when a quota has no reset cycle
-(the account-wide total), where rate is undefined, it falls back to the remaining dollar amount
-rather than showing a verdict it cannot compute.
+<table>
+  <tr>
+    <th>Menu bar popover</th>
+    <th>Settings and saved accounts</th>
+    <th>Usage history</th>
+  </tr>
+  <tr>
+    <td><img src="docs/images/popover.png" width="240" alt="Popover showing today's quota with a pace verdict, trend and token charts"></td>
+    <td><img src="docs/images/settings.png" width="300" alt="Settings window with the supported services and a list of saved accounts"></td>
+    <td><img src="docs/images/history.png" width="300" alt="History window with a quota trend curve and daily token bars"></td>
+  </tr>
+</table>
 
 ---
 
-## Design stance: nothing is invented
+## Why CodaPace
 
-This is the part worth reading the source for. Usage dashboards routinely interpolate across gaps,
-backfill zeros, and smooth curves — and the reader has no way to tell measured data from decoration.
-CodaPace refuses, consistently:
+- **Pace, not just usage.** *61% remaining* means nothing until you know how much of the period is
+  left. At 9 a.m. it's comfortable; at 11 p.m. it's irrelevant. CodaPace puts the two side by side:
+  `pace = quota remaining % − time remaining %`. Negative means you'll run out before the reset.
+- **A decision, not a statistic.** The verdict tells you whether to start the big refactor now or
+  wait for the reset.
+- **Two facts in the menu bar.** The number is how much is left; the caption is how fast it's going
+  (*On pace* / *Over pace*). The outer ring is quota, the inner ring is time.
+- **Nothing is invented.** Gaps stay gaps, estimates are labeled, and a quota with no reset cycle gets
+  no verdict rather than a made-up one. See [Design stance](#design-stance-nothing-is-invented).
 
-- **No pace verdict without a time window.** The account-wide total quota has no reset cycle, so it
-  simply shows no verdict rather than inventing one.
-- **Gaps are shaded, never bridged with a solid line.** While the app isn't running there are no
-  samples, and what happened in between is genuinely unknown.
-- **Solid means observed, dashed means inferred.** Two visually distinct strokes, one meaning each.
-- **Reset boundaries break the curve.** A quota jumping back to full is an instantaneous known event,
-  not a steep climb — drawing a slope there would imply a gradual transition that never happened.
-- **Inferred reset times are labeled** *(estimated)* — and corrected automatically once the app
-  observes a real reset in the recorded history.
-- **Token deltas spanning gaps longer than 30 minutes are discarded.** That usage crossed too much
-  time to attribute to any single day, so it is left out rather than guessed at.
-- **Unlimited quotas draw no percentage.** Without a ceiling there is no "remaining %".
+---
 
-The cost is visible: charts have holes in them, especially early on. That's the honest picture.
+## Supported services
+
+| Service | What you paste | Quotas | Where the credential lives |
+|---|---|---|---|
+| [claude-relay-service](https://github.com/Wei-Shaw/claude-relay-service) | The usage-stats page URL, `https://your-relay.example.com/admin-next/api-stats?apiId=…` | Total, daily, weekly Opus, rate-limit window | Preferences. The `apiId` is read-only and can't make requests |
+| [tu-zi](https://api.tu-zi.com/) | An API key, `sk-…` | Daily, weekly, monthly | macOS Keychain, because the key can spend money |
+
+It does **not** work with the official Anthropic API, Amazon Bedrock, Google Vertex AI, or gateways
+such as LiteLLM and OpenRouter. Their usage APIs differ, and the official API has no per-key quota
+endpoint at all.
+
+Each service lives in a single adapter file. Everything else, including pace math, reset
+inference, history, charts and alerts, is shared.
 
 ---
 
 ## Features
 
-- Four quotas at a glance — total, daily, weekly Opus, and the rate-limit window — each with real
-  currency amounts, not just percentages
-- Two menu bar styles: concentric rings or stacked bars
-- Local usage history in SQLite: quota curves and daily token bars, with a resizable history window
-- Quota alerts for *running low* and *being used quickly*, deduplicated per reset cycle so a
-  60-second refresh loop can't turn into a notification loop
-- Status is never carried by color alone — every state has an icon or a label
-- Simplified Chinese, Traditional Chinese, and English, switchable without restarting
+### Quota and pace
+- The quota shown in the menu bar is featured at the top of the popover; the rest fold under
+  **Other quota**
+- Real currency amounts alongside percentages
+- The menu bar can follow one quota, or pick the tightest one automatically
 - Countdown recomputed locally every 30 seconds, independent of the network refresh
 
----
+### Multiple accounts
+- Save any account that passes **Test connection**, with a name of your choice
+- Switch between saved accounts from the Settings window. History, learned reset times and alert
+  state are kept per account, so nothing is lost when you switch back
+- Deleting a saved account also removes its key from the Keychain; its history stays on disk
 
-## Prior art and attribution
+### History
+- Local SQLite history: quota curves and daily token bars, in a resizable window
+- 24-hour, 7-, 14- and 30-day ranges
 
-CodaPace owes a substantial debt to [CodexMeter](https://github.com/raycalrui/CodexMeter), a menu bar
-monitor for Codex quota. Its published design notes shaped both this app's interface and several of
-its rules:
+### Menu bar and alerts
+- Two styles: concentric rings or bars
+- Alerts for *running low* and *being used quickly*, deduplicated per reset cycle so a 60-second
+  refresh can't turn into a notification loop
+- Status is never carried by color alone. Every state has an icon or a label
 
-- **The pace idea itself** — weighing quota remaining against time remaining instead of reporting
-  consumption alone. The entire app is built around this concept.
-- The dual concentric ring indicator, and the rule that the inner ring is omitted when reset timing
-  is unknown.
-- A popover divided by rules rather than nested cards.
-- Splitting pure logic into a separately testable module.
-- Specific parameters: 15-minute anchor sampling, a 30-minute gap threshold, a 20% critical level,
-  and deduplicating notifications per reset cycle.
-- Signalling status with an icon or a label rather than color alone.
-
-**No CodexMeter source code was read or copied** — only its public README and architecture notes.
-Everything here is written from scratch.
-
-The two apps are not substitutes for each other. CodexMeter reads Codex quota by spawning a local
-`codex app-server` and speaking JSON-RPC over stdio; CodaPace reads an HTTP endpoint on a
-claude-relay-service instance. Neither can talk to the other's backend.
-
-Where CodaPace goes its own way:
-
-- **Real currency amounts**, not just percentages — the relay API reports spend, and Codex's doesn't
-- **Learns the daily reset hour from observed history**, because that API doesn't publish one, and
-  labels the value *(estimated)* until it does
-- **Distinguishes two kinds of discontinuity**: a gap is bridged with a dashed line because the
-  middle is unknown; a reset is not, because the jump is instantaneous and known — instead a new
-  cycle starts from a dashed 100% at the boundary
-- **Builds and tests without Xcode**, using `swiftc` directly and a small XCTest-compatible harness
-
----
-
-## Requirements
-
-- **macOS 13 or later, Apple Silicon only.** The build is `arm64`; Intel Macs cannot run it.
-- **A relay running [claude-relay-service](https://github.com/Wei-Shaw/claude-relay-service).**
-
-That second requirement is the important one. CodaPace reads two endpoints
-(`/apiStats/api/user-stats` and `/apiStats/api/batch-stats`) with the response shape that project
-defines. It does **not** work with:
-
-- the official Anthropic API — it exposes no equivalent per-key quota endpoint
-- Amazon Bedrock or Google Vertex AI
-- other gateways such as LiteLLM or OpenRouter, whose usage APIs differ
-
-Only the response models and the two network calls are provider-specific. Everything else — pace
-math, reset-cycle inference, history storage, chart series, alert policy — is provider-agnostic and
-lives in a separately testable module.
+### Languages
+- English, Simplified Chinese and Traditional Chinese, switchable without restarting
 
 ---
 
 ## Install
+
+### Command line
+
+Three commands: download the latest release, unzip it into Applications, and open it.
+
+```bash
+curl -fL -o /tmp/CodaPace.zip https://github.com/rigelmansid/CodaPace/releases/latest/download/CodaPace-arm64.zip
+```
+
+```bash
+ditto -x -k /tmp/CodaPace.zip /Applications
+```
+
+```bash
+open /Applications/CodaPace.app
+```
+
+A copy installed this way isn't quarantined, because `curl` doesn't mark what it downloads, so
+macOS opens it without the Gatekeeper prompt. To update, quit CodaPace and run the same three
+commands again.
+
+### Download
+
+Get `CodaPace-arm64.zip` from
+[Releases](https://github.com/rigelmansid/CodaPace/releases/latest), unzip it, and move
+`CodaPace.app` to Applications.
+
+Releases are **ad-hoc signed and not notarized**, so a browser download is blocked on first launch:
+
+1. **Control-click the app and choose Open.** On some macOS versions that's enough.
+2. If it's still refused, open **System Settings → Privacy & Security** and click **Open Anyway**
+   next to the message about CodaPace, then launch it again.
+
+This happens once per copy. The command-line install above avoids it.
 
 ### Build from source
 
@@ -151,72 +139,102 @@ cd CodaPace
 open build/CodaPace.app
 ```
 
-No Xcode required — Command Line Tools are enough.
+Command Line Tools are enough; Xcode isn't needed. An app you build yourself isn't quarantined, so
+it opens normally.
 
-Building it yourself produces an app you can open normally — macOS only quarantines apps that arrive
-from a browser or another machine.
+### Set up
 
-### If you got a prebuilt copy instead
-
-Builds are **ad-hoc signed and not notarized** — `Signature=adhoc`, no Team ID. A copy that arrived
-by download, AirDrop, or from another machine carries a quarantine flag, and Gatekeeper will refuse
-to open it.
-
-To open it anyway:
-
-1. **Control-click the app and choose Open.** On some macOS versions this is enough.
-2. If macOS still refuses, open **System Settings → Privacy & Security**, scroll to the security
-   section, and click **Open Anyway** beside the message about the blocked app. Then launch it again.
-
-Either way it's a one-time step per copy. Removing the friction properly requires a Developer ID
-certificate and notarization, which this project doesn't have — so if that warning is a dealbreaker,
-build from source instead.
-
-### Setup
-
-CodaPace opens its setup window on first launch. Open your relay's usage-stats page in a browser and
-paste the full address:
-
-```
-https://your-relay.example.com/admin-next/api-stats?apiId=…
-```
-
-Use **Test connection** before saving — it performs a real request without storing anything, so a
-wrong URL or apiId is reported immediately instead of surfacing later as a silent "Offline".
+The Settings window opens on first launch. Paste what your service's row asks for (see
+[Supported services](#supported-services)) and press **Test connection**. It makes a real request
+without saving anything, so a wrong URL or key is reported right away. Then **Save**. Keep
+**Also save to the list** ticked to add the account to your saved accounts.
 
 ---
 
-## Data and privacy
+## Design stance: nothing is invented
 
-- **CodaPace talks to exactly one host: the relay URL you provide.** No analytics, no other network
-  calls.
-- **The `apiId` is stored in plain text** in `~/Library/Preferences/com.hesher.codapace.plist`,
-  alongside the base URL. It is a read-only statistics identifier: it cannot issue API requests and
-  cannot reveal your API key. It was previously kept in the Keychain, but Keychain access is bound to
-  the code-signing identity, and an ad-hoc signature changes on every build — which made macOS demand
-  the user's login password at every launch. For an unsigned app that prompt is indistinguishable
-  from malware, and the thing it protected did not justify it.
-- **History is local**, in `~/Library/Application Support/CodaPace/History.sqlite`, partitioned by a
-  SHA-256 of the `apiId` so switching keys keeps histories separate. The raw `apiId` is never written
-  to the database.
+Usage dashboards routinely interpolate across gaps, backfill zeros and smooth curves, and the reader
+has no way to tell measured data from decoration. CodaPace refuses, consistently:
+
+- **No pace verdict without a time window.** A quota with no reset cycle shows no verdict.
+- **Gaps are shaded, never bridged with a solid line.** While the app isn't running there are no
+  samples, and what happened in between is unknown.
+- **Solid means observed, dashed means inferred.**
+- **Reset boundaries break the curve.** A quota jumping back to full is an instant, known event, not
+  a steep climb.
+- **Estimated reset times are labeled** *(estimated)*, and corrected once a real reset is observed.
+- **Token usage across midnight isn't split between days.** The total is known but the split isn't,
+  so it's recorded as unattributed rather than guessed. Within a single day, it all counts toward
+  that day.
+- **Unknown units stay unknown.** If a service doesn't say what its numbers are in, they're shown
+  as plain numbers, not dollars.
+
+The cost is visible: charts have holes in them, especially early on. That's the honest picture.
+
+---
+
+## FAQ
+
+<details>
+<summary><b>macOS says the app can't be opened</b></summary>
+
+Releases aren't notarized. Install from the [command line](#command-line) instead, which avoids
+the prompt, or follow the two steps under [Download](#download).
+</details>
+
+<details>
+<summary><b>Why does macOS ask for my password when I switch to a tu-zi account?</b></summary>
+
+That's the Keychain asking whether CodaPace may read the saved key. Click **Always Allow**.
+Because the app is ad-hoc signed, each new version counts as a new app to the Keychain, so you'll
+see the prompt once per saved key after each update.
+</details>
+
+<details>
+<summary><b>What data does CodaPace store, and where does it send it?</b></summary>
+
+- **Network:** only the relay URL you entered, or `coding.tu-zi.com` for tu-zi accounts. No
+  analytics, no other hosts.
+- **Preferences** (`~/Library/Preferences/com.hesher.codapace.plist`): the relay URL and `apiId`,
+  the saved-account list (names and identifiers, no keys), and your display settings.
+- **Keychain:** tu-zi API keys, under the service name `CodaPace`, readable only on this Mac.
+- **History** (`~/Library/Application Support/CodaPace/History.sqlite`): partitioned by a hash of
+  the service and account ID. The raw identifier is never written to the database.
+</details>
+
+<details>
+<summary><b>Why is my chart full of gaps?</b></summary>
+
+History is built from the app's own samples. The services only report current values, so nothing
+before your install date exists, and nothing is recorded while the app isn't running. Those
+periods are shaded instead of filled in.
+</details>
+
+<details>
+<summary><b>Why does a reset time say "estimated"?</b></summary>
+
+claude-relay-service doesn't publish its daily reset hour. CodaPace assumes local midnight until it
+sees the counter drop to zero, then remembers the real hour for that account. tu-zi reports its
+reset times, so they're never estimated.
+</details>
+
+<details>
+<summary><b>Can I watch two accounts at once?</b></summary>
+
+No. The menu bar has room for one number, and the popover, history and alerts all follow the
+active account. Saved accounts make switching quick instead.
+</details>
 
 ---
 
 ## Known limitations
 
-- **History begins the day you install.** The relay API only reports current values; there is no
-  historical endpoint. Nothing is backfilled.
+- **History begins the day you install.** Nothing is backfilled.
 - **No samples while the app isn't running.** Those periods appear as shaded gaps.
-- **The daily reset hour is inferred.** The API doesn't publish it, so CodaPace assumes local
-  midnight, marks that quota *(estimated)*, and learns the real hour the first time it observes the
-  counter drop to zero.
-- **Charts have no hover tooltips yet.** `chartXSelection` requires macOS 14; a manual
-  implementation is pending.
-- **Over-pace alerts on the rate-limit window can be chatty.** That window resets hourly, so its
-  dedupe key changes every hour — a sustained burst could produce one notification per hour. The
-  low-quota alert on that window is worth keeping (you're about to be throttled); the over-pace one
-  probably isn't. Not yet fixed.
-- **Apple Silicon only**, and **not notarized**.
+- **Charts have no hover tooltips.**
+- **Over-pace alerts on short windows can repeat.** The rate-limit window resets hourly, so a
+  sustained burst can produce one alert per hour.
+- **Apple Silicon only, not notarized**, and Keychain prompts return after each update (see FAQ).
 
 ---
 
@@ -228,40 +246,66 @@ swift run CoreTests             # 411 unit tests
 swift Scripts/make-icon.swift   # regenerate Resources/AppIcon.icns
 ```
 
-### Layout
+<details>
+<summary><b>Project layout</b></summary>
 
 ```
 Sources/Core/    pure logic — no AppKit, no SwiftUI, fully unit-tested
-Sources/App/     SwiftUI views, menu bar rendering, networking, notifications
+Sources/App/     SwiftUI views, menu bar rendering, networking, notifications, Keychain
 Tests/CoreTests/ test harness and cases
 Scripts/         icon generator
+docs/            project notes and design backlogs (Chinese)
 ```
 
-`Package.swift` exposes only `Sources/Core`, so the logic can be tested without touching the UI.
-`build.sh` compiles `Core` and `App` together as a single module, so both sides share one copy of
-the source.
+`Package.swift` exposes only `Sources/Core`, so the logic can be tested without the UI. `build.sh`
+compiles `Core` and `App` together as one module.
+</details>
 
-### About the test harness
+<details>
+<summary><b>About the test harness</b></summary>
 
-Command Line Tools do not ship `XCTest.framework` — it comes only with Xcode — so `swift test`
-cannot run here. `Tests/CoreTests/TestSupport.swift` provides assertion functions with the same
-names and signatures as XCTest, plus an explicit registry in `TestRegistry.swift`. Test bodies are
-written exactly as they would be under XCTest; the file header documents how to switch back in four
-steps once Xcode is available.
+Command Line Tools don't ship `XCTest.framework`; it comes only with Xcode, so `swift test` can't
+run. `Tests/CoreTests/TestSupport.swift` provides assertion functions with XCTest's names and
+signatures, plus an explicit registry in `TestRegistry.swift`. Test bodies are written as they
+would be under XCTest.
+</details>
 
-### The icon
+<details>
+<summary><b>The icon</b></summary>
 
-`Scripts/make-icon.swift` renders the icon with CoreGraphics and packages it via `iconutil`. Every
-dimension is expressed as a fraction of the canvas, so all ten sizes from 16pt to 1024pt are rendered
-from the same logic rather than downscaled from a single large image — which matters, because the
-sizes that decide whether an icon is usable are 32pt and 16pt, not 1024.
+`Scripts/make-icon.swift` draws the icon with CoreGraphics in sRGB and packages it with `iconutil`.
+Every dimension is a fraction of the canvas, so all ten sizes from 16 to 1024 px are drawn from the
+same logic rather than scaled down from one large image. The artwork is the menu bar indicator
+enlarged: outer ring for quota, inner ring for time.
+</details>
 
-The artwork is the menu bar indicator, enlarged: outer ring for quota, inner ring for time, inner
-stroke at 80% of the outer — the same ratio the app itself uses. What you see in the Dock and what
-you see in the menu bar are the same object.
+---
+
+## Prior art and attribution
+
+CodaPace owes a substantial debt to [CodexMeter](https://github.com/raycalrui/CodexMeter), a menu bar
+monitor for Codex quota. Its published design notes shaped this app's interface and several of its
+rules:
+
+- **The pace idea itself**, weighing quota remaining against time remaining. The whole app is built
+  around it.
+- The dual concentric ring indicator, with the inner ring omitted when reset timing is unknown.
+- A popover divided by rules rather than nested cards.
+- Splitting pure logic into a separately testable module.
+- Specific parameters: 15-minute anchor sampling, a 30-minute gap threshold, a 20% critical level,
+  and alert deduplication per reset cycle.
+- Signalling status with an icon or a label, not color alone.
+
+**No CodexMeter source code was read or copied**, only its public README and architecture notes.
+Everything here is written from scratch. The two apps read different backends and aren't
+substitutes for each other.
+
+Where CodaPace goes its own way: real currency amounts, learning the daily reset hour from observed
+history, treating a gap (unknown middle, dashed bridge) differently from a reset (instant, known
+jump), multiple services behind one adapter interface, and building without Xcode.
 
 ---
 
 ## License
 
-MIT
+[MIT](LICENSE)

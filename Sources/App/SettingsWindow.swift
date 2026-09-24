@@ -167,8 +167,9 @@ struct SettingsView: View {
             Spacer(minLength: 0)
 
             HStack {
+                // 直接落到 README 的支持列表那一节,不是仓库首页
                 Link(l10n.t(.setupSupportedLink),
-                     destination: URL(string: "https://github.com/rigelmansid/CodaPace")!)
+                     destination: URL(string: "https://github.com/rigelmansid/CodaPace#supported-services")!)
                     .font(.system(size: 10))
 
                 Spacer()
