@@ -181,9 +181,49 @@ enum Config {
             try KeychainStore.set(secret, for: credentialKey(account))
         }
 
+        writeIdentity(account)
+    }
+
+    /// 三个身份字段一起写。`apply` 和 `select` 共用这一处 —— 两条路径各写一份的话,
+    /// 哪天身份多一个字段,漏改的那条就会留下「谁都不是」的中间态。
+    private static func writeIdentity(_ account: AccountIdentity) {
         defaults.set(account.providerID, forKey: "providerID")
         defaults.set(account.baseURL, forKey: "baseURL")
         defaults.set(account.apiId, forKey: "apiId")
+    }
+
+    // MARK: - 账户存档(EXT-010)
+
+    /// 存档的账户列表。存的只有身份和昵称,**不含密钥** —— 理由见 Core/AccountArchive.swift。
+    static var archive: AccountArchive {
+        get { AccountArchive(propertyList: defaults.array(forKey: "accountArchive")) }
+        set { defaults.set(newValue.propertyList, forKey: "accountArchive") }
+    }
+
+    /// 切到一个已存档的账户。
+    ///
+    /// **不能复用 `apply`**:`apply` 是「配置一个新账户」,要写钥匙串所以必须拿到密钥;
+    /// 切换时手里没有密钥,也不该有 —— 只写身份,密钥照旧由 `connection(for:)`
+    /// 去钥匙串取。那条不在了的话,刷新会报「缺少密钥」,见该函数的注释。
+    ///
+    /// 只接受列表里有的:列表是经过 `AccountArchive.save` 那道门的,
+    /// 占位身份和没配置全的进不来。
+    static func select(_ account: AccountIdentity) {
+        guard archive.contains(account) else {
+            assertionFailure("\(account) 不在存档里,不能直接切过去")
+            return
+        }
+        writeIdentity(account)
+    }
+
+    /// 删掉一个账户在钥匙串里的密钥。**只给删除存档用**(`UsageService.forgetArchived`)——
+    /// 「删除」的语义是「我不再用这个账户了」,把能花钱的密钥留在钥匙串里不干净。
+    /// 历史库刻意不动,理由见那边。
+    ///
+    /// 不带密钥的供应商没有这一条,直接算成功。
+    static func removeCredential(for account: AccountIdentity) throws {
+        guard ProviderRegistry.adapter(for: account).credentialSensitivity == .secret else { return }
+        try KeychainStore.remove(credentialKey(account))
     }
 
     /// 当前这个账户要用的连接(身份 + 密钥)。

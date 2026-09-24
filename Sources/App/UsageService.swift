@@ -101,7 +101,20 @@ final class UsageService: ObservableObject {
     func applyAccount(_ connection: Connection) throws {
         let changed = connection.account != Config.account
         try Config.apply(connection)
+        accountDidSwitch(changed: changed)
+    }
 
+    /// 切到一个已存档的账户(EXT-010)。和 `applyAccount` 的区别只在写配置那一步 ——
+    /// 这里手里没有密钥,也不该有,理由见 `Config.select`。之后的清场是同一段。
+    func selectAccount(_ account: AccountIdentity) {
+        let changed = account != Config.account
+        Config.select(account)
+        accountDidSwitch(changed: changed)
+    }
+
+    /// 配置已写入之后的清场与重拉。`applyAccount` 和 `selectAccount` 共用这一段 ——
+    /// 各写一份的话,哪天这里多一件「换账户必须做的事」,漏改的那条就会串账户(不变量 5)。
+    private func accountDidSwitch(changed: Bool) {
         if changed {
             // 旧账户的数字不能挂在新账户的名字底下,哪怕只是新数据到达前的几百毫秒
             snapshot = nil
@@ -122,6 +135,49 @@ final class UsageService: ObservableObject {
 
         restartRefreshTimer()
         Task { await refresh() }
+    }
+
+    // MARK: 账户存档(EXT-010)
+
+    /// 存档列表。和上面几个设置项同一个做法:@Published 让面板的下拉和设置窗口的
+    /// 管理列表改一处另一处立刻重绘,写回 Config 保证重启后还在。
+    /// **只经下面几个函数改**,不开放 set —— 删除要连带钥匙串,不能绕过去。
+    @Published private(set) var archive = Config.archive {
+        didSet { Config.archive = archive }
+    }
+
+    /// 存档当前的账户。时机是「测试连接通过并保存之后」,昵称由界面预填
+    /// `ConnectionReport.accountName`、用户可改。
+    @discardableResult
+    func archiveCurrentAccount(nickname: String) -> Bool {
+        archive.save(Config.account, nickname: nickname)
+    }
+
+    @discardableResult
+    func renameArchived(_ account: AccountIdentity, to nickname: String) -> Bool {
+        archive.rename(account, to: nickname)
+    }
+
+    /// 删除一个存档:**删列表项 + 删钥匙串那条,历史库留着。**
+    ///
+    /// 历史是最有价值也最难重建的东西,它按身份分区,同一账户哪天重新加回来
+    /// 会自动接上。密钥和历史各自的去向,界面上的确认框都得说清楚。
+    ///
+    /// 先删密钥、后删列表项:反过来的话,钥匙串删失败时列表项已经没了,
+    /// 那把密钥就成了界面上再也够不着的孤儿。
+    ///
+    /// **当前账户不许删**(EXT-010 定的):删了密钥而身份还停在它上面,面板会立刻
+    /// 报「缺少密钥」;删完自动切到别的又是替用户选账户。界面上那一行的删除按钮
+    /// 该灰着并说明「先切到别的账户」,这里是兜底。
+    ///
+    /// - Throws: 钥匙串删除失败。调用方必须显示出来,此时列表原样不动。
+    func forgetArchived(_ account: AccountIdentity) throws {
+        guard account != Config.account else {
+            assertionFailure("不能删除当前正在用的账户")
+            return
+        }
+        try Config.removeCredential(for: account)
+        archive.remove(account)
     }
 
     // MARK: 刷新

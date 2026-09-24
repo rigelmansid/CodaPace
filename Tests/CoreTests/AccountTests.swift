@@ -124,3 +124,98 @@ final class RefreshGateTests: XCTestCase {
         XCTAssertEqual(gate.loadingAccount, accountA)
     }
 }
+
+// MARK: - 存档列表(EXT-010)
+
+final class AccountArchiveTests: XCTestCase {
+
+    func testSavedAccountsKeepInsertionOrder() {
+        var archive = AccountArchive()
+        archive.save(accountB, nickname: "B")
+        archive.save(accountA, nickname: "A")
+        XCTAssertEqual(archive.entries.map(\.account), [accountB, accountA])
+    }
+
+    /// 同一账户再存一次(比如 tu-zi 换了把 key、key_id 没变)只更新昵称,不多出一行
+    func testSavingTheSameAccountAgainUpdatesInPlace() {
+        var archive = AccountArchive()
+        archive.save(accountA, nickname: "旧名")
+        archive.save(accountB, nickname: "B")
+        archive.save(accountA, nickname: "新名")
+        XCTAssertEqual(archive.entries.count, 2)
+        XCTAssertEqual(archive.entries.first?.nickname, "新名")
+    }
+
+    /// 判重用完整身份:同一 apiId 换了网址是另一条存档 ——
+    /// 切换时三个字段都要写回去,合成一条就切不回其中一个了
+    func testSameApiIdOnAnotherURLIsASeparateEntry() {
+        let moved = AccountIdentity(providerID: accountA.providerID,
+                                    baseURL: "https://moved.example.com", apiId: accountA.apiId)
+        var archive = AccountArchive()
+        archive.save(accountA, nickname: "A")
+        archive.save(moved, nickname: "A 新址")
+        XCTAssertEqual(archive.entries.count, 2)
+    }
+
+    /// 占位身份进了列表,选中一次历史就串 —— 和 Config.apply 那道门同一理由
+    func testUnresolvedOrUnconfiguredAccountsAreRejected() {
+        var archive = AccountArchive()
+        let unresolved = AccountIdentity(providerID: accountA.providerID, baseURL: accountA.baseURL,
+                                         apiId: AccountIdentity.unresolvedAccountID)
+        XCTAssertFalse(archive.save(unresolved, nickname: "x"))
+        XCTAssertFalse(archive.save(.none, nickname: "x"))
+        XCTAssertTrue(archive.entries.isEmpty)
+    }
+
+    func testBlankNicknameIsRejectedAndRenameKeepsTheOldName() {
+        var archive = AccountArchive()
+        XCTAssertFalse(archive.save(accountA, nickname: "  \n"))
+        XCTAssertTrue(archive.entries.isEmpty)
+
+        archive.save(accountA, nickname: " 主力 ")
+        XCTAssertEqual(archive.nickname(for: accountA), "主力")
+        XCTAssertFalse(archive.rename(accountA, to: " "))
+        XCTAssertEqual(archive.nickname(for: accountA), "主力")
+    }
+
+    /// 改名不能顺手把一个没存过的账户加进来
+    func testRenamingAnUnarchivedAccountDoesNothing() {
+        var archive = AccountArchive()
+        XCTAssertFalse(archive.rename(accountA, to: "A"))
+        XCTAssertTrue(archive.entries.isEmpty)
+    }
+
+    func testRemoveTakesOutOnlyThatAccount() {
+        var archive = AccountArchive()
+        archive.save(accountA, nickname: "A")
+        archive.save(accountB, nickname: "B")
+        archive.remove(accountA)
+        XCTAssertEqual(archive.entries.map(\.account), [accountB])
+    }
+
+    func testPropertyListRoundTrips() {
+        var archive = AccountArchive()
+        archive.save(accountA, nickname: "A")
+        archive.save(accountB, nickname: "B")
+        XCTAssertEqual(AccountArchive(propertyList: archive.propertyList), archive)
+    }
+
+    /// 一条坏掉的不能把整张列表清空 —— 那等于替用户删了所有存档
+    func testCorruptEntriesAreSkippedNotFatal() {
+        let stored: [[String: Any]] = [
+            ["providerID": accountA.providerID, "baseURL": accountA.baseURL, "apiId": accountA.apiId, "nickname": "A"],
+            ["providerID": accountB.providerID, "baseURL": 42, "apiId": accountB.apiId, "nickname": "B"],
+            ["providerID": accountA.providerID, "baseURL": accountA.baseURL,
+             "apiId": AccountIdentity.unresolvedAccountID, "nickname": "占位"],
+            ["providerID": accountA.providerID, "baseURL": accountA.baseURL, "apiId": accountA.apiId, "nickname": "重复"],
+        ]
+        let archive = AccountArchive(propertyList: stored)
+        XCTAssertEqual(archive.entries.map(\.account), [accountA])
+        XCTAssertEqual(archive.nickname(for: accountA), "重复")
+    }
+
+    func testMissingOrWrongShapedStorageIsAnEmptyList() {
+        XCTAssertTrue(AccountArchive(propertyList: nil).entries.isEmpty)
+        XCTAssertTrue(AccountArchive(propertyList: "garbage").entries.isEmpty)
+    }
+}

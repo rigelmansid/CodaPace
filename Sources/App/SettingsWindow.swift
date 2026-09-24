@@ -51,6 +51,9 @@ struct SettingsView: View {
 
     @ObservedObject private var l10n = Localization.shared
 
+    /// 存档列表在它身上(EXT-010)。观察它,面板那边切了账户,这里「当前」标记跟着变
+    @ObservedObject private var service = UsageService.shared
+
     @State private var input: String = Config.consoleURL?.absoluteString ?? ""
     @State private var result: TestResult = .idle
 
@@ -62,6 +65,17 @@ struct SettingsView: View {
     /// 没有它就会出现:测试在飞时用户改了网址,旧结果回来照样写进界面,
     /// 于是显示「连接成功」,而那说的是上一个网址。
     @State private var probe = InFlightGate<String>()
+
+    /// 保存时是否同时存档,以及叫什么(EXT-010)。
+    ///
+    /// 默认勾上:这个功能的全部意义就是下次不用再粘一遍。
+    /// 昵称在测试通过那一刻预填 —— 已存过的沿用用户起的名字,没存过的用
+    /// `ConnectionReport.accountName`。强制从空白填起是给常见路径加摩擦。
+    @State private var archiveOnSave = true
+    @State private var nickname = ""
+
+    /// 等待确认删除的那一条。删除要连带钥匙串,必须先问
+    @State private var pendingDelete: ArchivedAccount?
 
     /// 哪个适配器认这段输入,以及它解析出的连接。
     ///
@@ -95,6 +109,21 @@ struct SettingsView: View {
     /// 解析得出来、但还差一次测试
     private var needsVerification: Bool { resolved != nil && saveable == nil }
 
+    /// 存档的时机是「测试通过」—— 没测过的连接不给存档选项
+    private var offersArchive: Bool { report != nil && saveable != nil }
+
+    /// 勾了存档却把名字清空了。保存按钮因此灰着,理由就是旁边那个空着的名字框
+    private var archiveNameMissing: Bool {
+        offersArchive && archiveOnSave
+            && nickname.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    /// 管理列表占的高度。窗口是固定尺寸的,列表多一行就得跟着长;
+    /// 超过四行在列表里滚,不让窗口无限变高。
+    private var archiveListHeight: CGFloat {
+        service.archive.entries.isEmpty ? 0 : CGFloat(min(service.archive.entries.count, 4)) * 26
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
             VStack(alignment: .leading, spacing: 5) {
@@ -126,6 +155,10 @@ struct SettingsView: View {
 
             statusLine
 
+            if !service.archive.entries.isEmpty {
+                archiveList
+            }
+
             Spacer(minLength: 0)
 
             HStack {
@@ -140,11 +173,56 @@ struct SettingsView: View {
 
                 Button(l10n.t(.setupSave)) { save() }
                     .keyboardShortcut(.defaultAction)
-                    .disabled(saveable == nil)
+                    .disabled(saveable == nil || archiveNameMissing)
             }
         }
         .padding(20)
-        .frame(width: 560, height: 290)
+        .frame(width: 560,
+               height: 290
+                   + (offersArchive ? 28 : 0)
+                   + (archiveListHeight > 0 ? archiveListHeight + 36 : 0))
+        .alert(l10n.f(.archiveDeleteTitleFormat, pendingDelete?.nickname ?? ""),
+               isPresented: Binding(get: { pendingDelete != nil },
+                                    set: { if !$0 { pendingDelete = nil } }),
+               presenting: pendingDelete) { entry in
+            Button(l10n.t(.archiveDelete), role: .destructive) { forget(entry) }
+            Button(l10n.t(.archiveCancel), role: .cancel) {}
+        } message: { entry in
+            // 密钥和历史各自的去向都要说;不带密钥的那家没有钥匙串这回事,不提
+            let hasSecret = ProviderRegistry.adapter(for: entry.account).credentialSensitivity == .secret
+            Text(l10n.t(hasSecret ? .archiveDeleteMessageSecret : .archiveDeleteMessagePlain))
+        }
+    }
+
+    // MARK: 存档管理(EXT-010)
+
+    /// 改名、删除在这里;切换在面板上(高频动作放面板,管理放这里)。
+    private var archiveList: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(l10n.t(.archiveSectionTitle))
+                .font(.system(size: 11, weight: .medium))
+            ScrollView {
+                VStack(spacing: 2) {
+                    ForEach(service.archive.entries, id: \.account) { entry in
+                        ArchiveRow(entry: entry,
+                                   isCurrent: entry.account == Config.account,
+                                   onDelete: { pendingDelete = entry })
+                            // 名字在别处改了(或改名被拒)时,重建这一行以丢掉旧草稿
+                            .id(entry.nickname)
+                    }
+                }
+            }
+            .frame(height: archiveListHeight)
+        }
+    }
+
+    private func forget(_ entry: ArchivedAccount) {
+        do {
+            try service.forgetArchived(entry.account)
+        } catch {
+            // 钥匙串删失败时列表原样不动 —— 如实说出来,别让人以为删掉了
+            result = .failure(error.localizedDescription)
+        }
     }
 
     // MARK: 支持列表
@@ -255,6 +333,18 @@ struct SettingsView: View {
                 ForEach(report.findings, id: \.self) { finding in
                     hint("· " + l10n.t(label(for: finding)), color: .secondary)
                 }
+                if offersArchive {
+                    HStack(spacing: 6) {
+                        Toggle(l10n.t(.archiveOnSave), isOn: $archiveOnSave)
+                            .font(.system(size: 11))
+                        TextField(l10n.t(.archiveNicknamePlaceholder), text: $nickname)
+                            .textFieldStyle(.roundedBorder)
+                            .font(.system(size: 11))
+                            .frame(width: 200)
+                            .disabled(!archiveOnSave)
+                    }
+                    .padding(.top, 4)
+                }
             }
 
         case .failure(let message):
@@ -305,6 +395,9 @@ struct SettingsView: View {
                 // 否则界面会显示「连接成功」,而那说的是上一个网址
                 guard input == probed else { return }
                 result = .success(report)
+                // 预填昵称。已存过的沿用用户起的名字 —— 重测一次不该把它冲掉
+                let account = ProviderRegistry.resolvedForSaving(resolved.connection, report: report)?.account
+                nickname = account.flatMap { service.archive.nickname(for: $0) } ?? report.accountName
             } catch {
                 guard input == probed else { return }
                 result = .failure(error.localizedDescription)
@@ -318,11 +411,78 @@ struct SettingsView: View {
         guard let saveable else { return }
         do {
             try UsageService.shared.applyAccount(saveable)
+            // 存档在 apply 成功之后:钥匙串写失败时不该留下一条取不到密钥的存档
+            if offersArchive && archiveOnSave {
+                service.archiveCurrentAccount(nickname: nickname)
+            }
             SettingsWindow.shared.close()
         } catch {
             // 钥匙串写失败时**窗口不关**:关掉的话界面会显示已配置,
             // 而每次刷新都取不到密钥,用户只看得到一句「请求失败」。
             result = .failure(error.localizedDescription)
         }
+    }
+}
+
+// MARK: - 存档行
+
+/// 一条存档:可改的名字、哪一家、删除按钮。
+///
+/// 名字用本地草稿,按回车才提交 —— 每敲一个字就写一次的话,清空重打的
+/// 中间那一刻会被 `AccountArchive.rename` 以「空白」拒掉,来回跳。
+private struct ArchiveRow: View {
+    let entry: ArchivedAccount
+    let isCurrent: Bool
+    let onDelete: () -> Void
+
+    @ObservedObject private var l10n = Localization.shared
+    @State private var draft: String
+
+    init(entry: ArchivedAccount, isCurrent: Bool, onDelete: @escaping () -> Void) {
+        self.entry = entry
+        self.isCurrent = isCurrent
+        self.onDelete = onDelete
+        _draft = State(initialValue: entry.nickname)
+    }
+
+    var body: some View {
+        HStack(spacing: 8) {
+            TextField("", text: $draft)
+                .textFieldStyle(.roundedBorder)
+                .font(.system(size: 11))
+                .frame(width: 200)
+                .help(l10n.t(.archiveRenameHelp))
+                .onSubmit {
+                    // 改成空白被拒时退回原名,不让框里留着一个没生效的名字
+                    if !UsageService.shared.renameArchived(entry.account, to: draft) {
+                        draft = entry.nickname
+                    }
+                }
+
+            Text(ProviderRegistry.adapter(for: entry.account).displayName)
+                .font(.system(size: 11))
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+
+            Spacer()
+
+            if isCurrent {
+                Text(l10n.t(.archiveCurrentTag))
+                    .font(.system(size: 10))
+                    .foregroundStyle(.secondary)
+            }
+
+            // 当前账户不许删(EXT-010)。灰掉的按钮在 AppKit 里不显示 tooltip,
+            // 所以说明挂在外面这层上
+            Button(action: onDelete) {
+                Image(systemName: "trash").font(.system(size: 11))
+            }
+            .buttonStyle(.borderless)
+            .disabled(isCurrent)
+            .padding(2)
+            .contentShape(Rectangle())
+            .help(l10n.t(isCurrent ? .archiveDeleteCurrentHelp : .archiveDelete))
+        }
+        .frame(height: 24)
     }
 }

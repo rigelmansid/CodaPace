@@ -57,6 +57,12 @@ public enum LangKey: String, CaseIterable {
     // 面板框架
     case appTitle, statusActive, statusInactive, quit, updatedAt, settings
 
+    // 账户存档(EXT-010)
+    case accountUnarchived
+    case archiveOnSave, archiveNicknamePlaceholder, archiveSectionTitle, archiveCurrentTag
+    case archiveDeleteCurrentHelp, archiveDeleteTitleFormat, archiveDeleteMessageSecret
+    case archiveDeleteMessagePlain, archiveDelete, archiveCancel, archiveRenameHelp
+
     // 设置分组
     case groupDisplay, groupAccount, groupLanguage
 
@@ -254,12 +260,51 @@ public enum L10n {
         .requestsShortFormat: [
             .zhHans: "%@ 次", .zhHant: "%@ 次", .en: "%@ req"],
 
+        // ── 账户存档 ──────────────────────────────────────
+        // 当前账户不在存档里时下拉显示这一项,且不可选 —— 不显示的话,
+        // 下拉的标签会让人以为选中的是列表里的某一个
+        .accountUnarchived: [
+            .zhHans: "当前账户(未存档)", .zhHant: "目前帳戶(未存檔)", .en: "Current account (not saved)"],
+        .archiveOnSave: [
+            .zhHans: "同时存档,名称:", .zhHant: "同時存檔,名稱:", .en: "Also save to the list as:"],
+        .archiveNicknamePlaceholder: [
+            .zhHans: "名称", .zhHant: "名稱", .en: "Name"],
+        .archiveSectionTitle: [
+            .zhHans: "已存档的账户", .zhHant: "已存檔的帳戶", .en: "Saved accounts"],
+        .archiveCurrentTag: [
+            .zhHans: "当前", .zhHant: "目前", .en: "Current"],
+        // 删除按钮灰着总得有个理由(EXT-010 定了当前账户不许删)
+        .archiveDeleteCurrentHelp: [
+            .zhHans: "正在使用的账户不能删除,先切到别的账户再删",
+            .zhHant: "正在使用的帳戶不能刪除,先切換到別的帳戶再刪",
+            .en: "This account is in use — switch to another one before deleting it"],
+        .archiveDeleteTitleFormat: [
+            .zhHans: "删除「%@」?", .zhHant: "刪除「%@」?", .en: "Delete “%@”?"],
+        // 密钥和历史各自的去向必须都说清楚,不能默默做(EXT-010)。
+        // 不带密钥的供应商没有钥匙串那一条,另用一句,不说一件没发生的事。
+        .archiveDeleteMessageSecret: [
+            .zhHans: "会从列表中移除,并删除钥匙串里保存的 API Key。本机的历史数据会保留,以后重新添加同一账户会自动接上。",
+            .zhHant: "會從列表中移除,並刪除鑰匙圈裡儲存的 API Key。本機的歷史資料會保留,日後重新加入同一帳戶會自動接上。",
+            .en: "It will be removed from the list and its API key deleted from the Keychain. Local history is kept and reconnects if you add the same account again."],
+        .archiveDeleteMessagePlain: [
+            .zhHans: "会从列表中移除。本机的历史数据会保留,以后重新添加同一账户会自动接上。",
+            .zhHant: "會從列表中移除。本機的歷史資料會保留,日後重新加入同一帳戶會自動接上。",
+            .en: "It will be removed from the list. Local history is kept and reconnects if you add the same account again."],
+        .archiveDelete: [
+            .zhHans: "删除", .zhHant: "刪除", .en: "Delete"],
+        .archiveCancel: [
+            .zhHans: "取消", .zhHant: "取消", .en: "Cancel"],
+        .archiveRenameHelp: [
+            .zhHans: "改名后按回车保存", .zhHant: "改名後按 Return 儲存", .en: "Press Return to save the new name"],
+
         // ── 状态 ──────────────────────────────────────────
         .stateLoading: [
             .zhHans: "正在读取…", .zhHant: "正在讀取…", .en: "Loading…"],
         .stateOfflineTitle: [
             .zhHans: "暂时取不到数据", .zhHant: "暫時取不到資料",
-            .en: "Can’t reach the server"],
+            // 英文曾是「Can’t reach the server」—— 对缺少密钥、认证失效都是错的,
+            // 而这一支显示的正是所有错误。改成和中文一样中性的说法(EXT-010)
+            .en: "Couldn’t get data"],
         .stateStaleFormat: [
             .zhHans: "⚠︎ 最近一次刷新失败:%@", .zhHant: "⚠︎ 最近一次更新失敗:%@",
             .en: "⚠︎ Last refresh failed: %@"],

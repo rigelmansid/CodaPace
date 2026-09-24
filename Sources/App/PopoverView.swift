@@ -220,6 +220,7 @@ struct PopoverView: View {
                 }
             }
             Spacer()
+            accountPicker
             Button {
                 Task { await service.refresh() }
             } label: {
@@ -230,6 +231,42 @@ struct PopoverView: View {
         }
         .padding(.horizontal, Metrics.hPad)
         .padding(.vertical, 11)
+    }
+
+    /// 账户下拉(EXT-010)。切换是这个功能里的高频动作,所以放面板;
+    /// 增删改名是低频的,放设置窗口。
+    ///
+    /// **有别的账户可切才出现** —— 只有当前这一个的话,下拉里没东西可选。
+    /// 判据不是「存档不少于两条」:当前账户没存档而列表里有一条时,那一条就是可切的。
+    ///
+    /// 当前账户不在存档里时,列表顶上多一项「当前账户(未存档)」并处于选中。
+    /// 少了它,下拉的标签只能显示列表里的某一个名字,看起来像是选中了别的账户。
+    /// 选它什么也不做 —— 它就是现状。
+    @ViewBuilder
+    private var accountPicker: some View {
+        let current = Config.account
+        let archive = service.archive
+        if archive.entries.contains(where: { $0.account != current }) {
+            Picker("", selection: Binding(
+                get: { current },
+                set: { picked in
+                    guard picked != current, archive.contains(picked) else { return }
+                    service.selectAccount(picked)
+                }
+            )) {
+                if !archive.contains(current) {
+                    Text(l10n.t(.accountUnarchived)).tag(current)
+                    Divider()
+                }
+                ForEach(archive.entries, id: \.account) { entry in
+                    Text(entry.nickname).tag(entry.account)
+                }
+            }
+            .pickerStyle(.menu)
+            .labelsHidden()
+            .controlSize(.small)
+            .frame(maxWidth: 150)
+        }
     }
 
     // MARK: 滚动区
@@ -245,7 +282,7 @@ struct PopoverView: View {
             Divider()
             summarySection(snapshot)
         } else if let error = service.errorText {
-            message(l10n.t(.stateOfflineTitle), detail: error)
+            message(l10n.t(.stateOfflineTitle), detail: error, offersSetup: true)
         } else {
             message(l10n.t(.stateLoading), detail: nil)
         }
@@ -321,11 +358,20 @@ struct PopoverView: View {
         .padding(.vertical, 18)
     }
 
-    private func message(_ title: String, detail: String?) -> some View {
+    /// - Parameter offersSetup: 给一个去设置窗口的按钮。取不到数据时要用:
+    ///   切到一个钥匙串里已没有密钥的存档账户,落到的就是这一支,报错让人
+    ///   「重新填写」—— 不给按钮的话得去折叠区里找「配置账号」(EXT-010)。
+    ///   认证失效等其他错误同样用得上。
+    private func message(_ title: String, detail: String?, offersSetup: Bool = false) -> some View {
         VStack(alignment: .leading, spacing: 4) {
             Text(title).font(.system(size: 12, weight: .medium))
             if let detail {
                 Text(detail).font(.system(size: 11)).foregroundStyle(.secondary)
+            }
+            if offersSetup {
+                Button(l10n.t(.stateOpenSetup)) { SettingsWindow.shared.show() }
+                    .controlSize(.small)
+                    .padding(.top, 4)
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)

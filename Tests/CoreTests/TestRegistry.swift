@@ -492,6 +492,19 @@ let allSuites: [TestSuite] = [
         ("testStorageKeyDoesNotLeakTheRawApiId", { AccountIdentityTests().testStorageKeyDoesNotLeakTheRawApiId() }),
     ]),
 
+    ("AccountArchiveTests", [
+        ("testSavedAccountsKeepInsertionOrder", { AccountArchiveTests().testSavedAccountsKeepInsertionOrder() }),
+        ("testSavingTheSameAccountAgainUpdatesInPlace", { AccountArchiveTests().testSavingTheSameAccountAgainUpdatesInPlace() }),
+        ("testSameApiIdOnAnotherURLIsASeparateEntry", { AccountArchiveTests().testSameApiIdOnAnotherURLIsASeparateEntry() }),
+        ("testUnresolvedOrUnconfiguredAccountsAreRejected", { AccountArchiveTests().testUnresolvedOrUnconfiguredAccountsAreRejected() }),
+        ("testBlankNicknameIsRejectedAndRenameKeepsTheOldName", { AccountArchiveTests().testBlankNicknameIsRejectedAndRenameKeepsTheOldName() }),
+        ("testRenamingAnUnarchivedAccountDoesNothing", { AccountArchiveTests().testRenamingAnUnarchivedAccountDoesNothing() }),
+        ("testRemoveTakesOutOnlyThatAccount", { AccountArchiveTests().testRemoveTakesOutOnlyThatAccount() }),
+        ("testPropertyListRoundTrips", { AccountArchiveTests().testPropertyListRoundTrips() }),
+        ("testCorruptEntriesAreSkippedNotFatal", { AccountArchiveTests().testCorruptEntriesAreSkippedNotFatal() }),
+        ("testMissingOrWrongShapedStorageIsAnEmptyList", { AccountArchiveTests().testMissingOrWrongShapedStorageIsAnEmptyList() }),
+    ]),
+
     ("RefreshGateTests", [
         ("testIdleGateIsNotLoading", { RefreshGateTests().testIdleGateIsNotLoading() }),
         ("testBeginMarksTheAccountAsInFlight", { RefreshGateTests().testBeginMarksTheAccountAsInFlight() }),
