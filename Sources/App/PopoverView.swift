@@ -245,6 +245,13 @@ struct PopoverView: View {
     /// 用 TimelineView 按时间算角度,而不是 `repeatForever` 动画 ——
     /// 后者在 isLoading 变回 false 时停不干净(会跳回原位或继续转完一圈)。
     /// 暂停后角度直接归零,停在哪都一样。
+    ///
+    /// 转轴必须是**圆弧的圆心**,不是图标边框的中心。`arrow.clockwise` 的箭头头部
+    /// 从圆顶上伸出去,边框因此比圆高出一截,绕边框中心转会一上一下地晃。
+    /// 锚点是把符号放大渲染、量出圆弧外沿(左、右、下三个极值)算的:
+    /// 横向正好居中,纵向在边框高度的 57.9% 处。换了符号得重新量。
+    private static let refreshArcCenter = UnitPoint(x: 0.4988, y: 0.579)
+
     private var refreshButton: some View {
         Button {
             Task { await service.refresh() }
@@ -254,7 +261,8 @@ struct PopoverView: View {
                     .rotationEffect(.degrees(service.isLoading
                         ? context.date.timeIntervalSinceReferenceDate
                             .truncatingRemainder(dividingBy: 1) * 360
-                        : 0))
+                        : 0),
+                        anchor: Self.refreshArcCenter)
             }
         }
         .buttonStyle(.borderless)
