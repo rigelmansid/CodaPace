@@ -210,24 +210,22 @@ public enum TokenAttribution: Equatable {
 
 public enum TokenAttributionPolicy {
 
-    /// 间隔超过这个长度就归不到具体某天 —— app 关了很久,这段用量横跨太多时间
-    public static let maxAttributableGap: TimeInterval = 30 * 60
-
-    /// 这段增量该记到哪儿。两条都不满足才算能归属:
+    /// 这段增量该记到哪儿。判据只有一条:**两次采样落在同一天**。
     ///
-    /// · **两次采样落在同一天** —— 跨了日界就说不清哪部分属于哪天;
-    /// · **间隔不超过 `maxAttributableGap`** —— app 关了三天再打开,
-    ///   那段增量横跨太多天,归给任何一天都是编的。
+    /// 跨了日界就说不清哪部分属于哪天,归到 `unattributed` 而**不是丢掉**:
+    /// 我们确实知道这段时间里用了多少,只是不知道分布。丢掉会让总量凭空变少,
+    /// 那是另一种不诚实。app 关了三天再打开也走这条 —— 三天必然跨日界。
     ///
-    /// 两种情况都归到 `unattributed` 而**不是丢掉**:我们确实知道这段时间里用了多少,
-    /// 只是不知道分布。丢掉会让总量凭空变少,那是另一种不诚实。
+    /// 这里曾经还有一条「间隔超过 30 分钟也归不了」(EXT-010 讨论时撤掉)。
+    /// 它是从 `TokenDelta.between` 早年的 maxGap 原样搬来的,单独起作用的只剩
+    /// 「同一天内间隔较长」这一种情况 —— 而接口给的是累计值,两端都在今天,
+    /// 中间的用量只能发生在今天,没有什么可编的。不知道的只是今天哪个时段,
+    /// 按天的柱子本来就不问这个。别和 `HistoryGaps.threshold` 混淆:曲线断档
+    /// 不能连线,是因为中间的**走势**未知;按天总量不需要走势。
+    ///
+    /// 撤掉它之后,当天切走又切回来的账户(EXT-010),中间的用量完整记在当天。
     public static func attribute(from previous: Date, to current: Date,
-                                 timeZone: TimeZone = .current,
-                                 maxGap: TimeInterval = maxAttributableGap) -> TokenAttribution {
-        guard current.timeIntervalSince(previous) <= maxGap else {
-            return .unattributed(from: previous, to: current)
-        }
-
+                                 timeZone: TimeZone = .current) -> TokenAttribution {
         let before = DayKey.string(for: previous, timeZone: timeZone)
         let after = DayKey.string(for: current, timeZone: timeZone)
 

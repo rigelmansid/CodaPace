@@ -345,9 +345,9 @@ public enum L10n {
             .zhHant: "app 沒執行的時段沒有取樣。曲線上的陰影就是這些空檔 —— 不做內插,因為中間發生了什麼無從得知。",
             .en: "No samples while the app isn’t running. Shaded bands mark those gaps — no interpolation, since what happened is unknown."],
         .historyNote3: [
-            .zhHans: "断档超过 30 分钟的 token 增量不计入任何一天:那段用量横跨的时间太长,归给哪天都是编的。",
-            .zhHant: "斷檔超過 30 分鐘的 token 增量不計入任何一天:那段用量橫跨的時間太長,歸給哪天都是編的。",
-            .en: "Token deltas across gaps longer than 30 minutes are dropped — attributing them to any single day would be a guess."],
+            .zhHans: "跨过午夜的断档,那段 token 增量不计入任何一天:只知道总共用了多少,不知道午夜前后各占多少。",
+            .zhHant: "跨過午夜的斷檔,那段 token 增量不計入任何一天:只知道總共用了多少,不知道午夜前後各佔多少。",
+            .en: "Token usage across a gap that spans midnight isn’t counted toward either day — the total is known, but not how it splits."],
         .historyNote4: [
             .zhHans: "计数器归零处另起一段曲线,对应一次额度重置。",
             .zhHant: "計數器歸零處另起一段曲線,對應一次額度重設。",

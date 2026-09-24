@@ -1117,12 +1117,13 @@ final class TokenAttributionTests: XCTestCase {
                        .unattributed(from: from, to: to))
     }
 
-    /// 同一天内但间隔超过阈值,同样归不了 —— 判据是间隔,不只是日界
-    func testLongGapWithinOneDayIsAlsoUnattributable() {
-        let from = attrDate(2026, 6, 15, 10, 0)
-        let to = attrDate(2026, 6, 15, 12, 0)
+    /// 同一天内间隔再长,两端都在今天,中间的用量只能发生在今天 ——
+    /// 从前这里断言的是「归不了」,EXT-010 讨论时撤掉了那条 30 分钟规则
+    func testLongGapWithinOneDayIsAttributedToThatDay() {
+        let from = attrDate(2026, 6, 15, 0, 5)
+        let to = attrDate(2026, 6, 15, 23, 55)
         XCTAssertEqual(TokenAttributionPolicy.attribute(from: from, to: to, timeZone: attrTZ),
-                       .unattributed(from: from, to: to))
+                       .day("2026-06-15"))
     }
 
     /// **验收标准点名的那条**：跨边界的差值不能被整段塞进后一个桶。

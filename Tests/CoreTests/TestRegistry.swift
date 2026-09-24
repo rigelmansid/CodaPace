@@ -332,7 +332,7 @@ let allSuites: [TestSuite] = [
     ("TokenAttributionTests", [
         ("testSameDayIsAttributedToThatDay", { TokenAttributionTests().testSameDayIsAttributedToThatDay() }),
         ("testWideGapIsNotAttributedToAnyDay", { TokenAttributionTests().testWideGapIsNotAttributedToAnyDay() }),
-        ("testLongGapWithinOneDayIsAlsoUnattributable", { TokenAttributionTests().testLongGapWithinOneDayIsAlsoUnattributable() }),
+        ("testLongGapWithinOneDayIsAttributedToThatDay", { TokenAttributionTests().testLongGapWithinOneDayIsAttributedToThatDay() }),
         ("testCrossingMidnightIsNotAttributedToEitherDay", { TokenAttributionTests().testCrossingMidnightIsNotAttributedToEitherDay() }),
         ("testAttributionFollowsTheGivenTimeZone", { TokenAttributionTests().testAttributionFollowsTheGivenTimeZone() }),
     ]),
