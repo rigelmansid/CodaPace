@@ -56,6 +56,7 @@ public enum Language: String, CaseIterable, Identifiable, Equatable {
 public enum LangKey: String, CaseIterable {
     // 面板框架
     case appTitle, statusActive, statusInactive, quit, updatedAt, settings
+    case otherGauges
 
     // 账户存档(EXT-010)
     case archiveOnSave, archiveNicknamePlaceholder, archiveSectionTitle, archiveCurrentTag
@@ -259,6 +260,10 @@ public enum L10n {
             .zhHans: "%@ 次请求", .zhHant: "%@ 次請求", .en: "%@ requests"],
         .requestsShortFormat: [
             .zhHans: "%@ 次", .zhHant: "%@ 次", .en: "%@ req"],
+
+        // 面板上菜单栏那条之外的额度,收在这个折叠区里
+        .otherGauges: [
+            .zhHans: "其他额度", .zhHant: "其他額度", .en: "Other quota"],
 
         // ── 账户存档 ──────────────────────────────────────
         .archiveOnSave: [

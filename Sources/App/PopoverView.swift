@@ -157,6 +157,9 @@ struct PopoverView: View {
     @StateObject private var history = HistoryModel()
 
     @State private var showSettings = false
+
+    /// 「其他」额度默认收起 —— 面板第一眼只该看到菜单栏上那一条
+    @State private var showOtherGauges = false
     @State private var contentHeight: CGFloat = 0
 
     /// 滚动区的高度上限。
@@ -288,12 +291,63 @@ struct PopoverView: View {
         }
     }
 
+    /// 额度区:顶上是**菜单栏正在显示的那一条**,其余收进「其他」。
+    ///
+    /// 顶上那条直接取 `service.menuBarGauge` —— 菜单栏画的就是它,固定选择失效时
+    /// 退回自动、自动模式下挑最紧的那条,这些规则都在它里面。面板自己再判一遍
+    /// 的话,两边迟早对不上(不变量 5)。
+    ///
+    /// 一条有上限的额度都没有时,菜单栏没有主角(显示的是用量本身),
+    /// 这里也就没有可置顶的,全部平铺,不折叠。
+    @ViewBuilder
     private func gauges(_ snapshot: Snapshot) -> some View {
-        ForEach(Array(snapshot.gauges.enumerated()), id: \.offset) { index, gauge in
+        if let featured = service.menuBarGauge {
+            gaugeRow(featured)
+            let others = snapshot.gauges.filter { $0.id != featured.id }
+            if !others.isEmpty {
+                Divider()
+                otherGauges(others)
+            }
+        } else {
+            gaugeList(snapshot.gauges)
+        }
+    }
+
+    private func gaugeList(_ gauges: [QuotaBucket]) -> some View {
+        ForEach(Array(gauges.enumerated()), id: \.offset) { index, gauge in
             if index > 0 { Divider().padding(.leading, Metrics.hPad) }
-            GaugeRow(gauge: gauge, now: service.now)
-                .padding(.horizontal, Metrics.hPad)
-                .padding(.vertical, 10)
+            gaugeRow(gauge)
+        }
+    }
+
+    private func gaugeRow(_ gauge: QuotaBucket) -> some View {
+        GaugeRow(gauge: gauge, now: service.now)
+            .padding(.horizontal, Metrics.hPad)
+            .padding(.vertical, 10)
+    }
+
+    /// 可折叠的「其他」,外观和下面的设置区同一个样式
+    private func otherGauges(_ gauges: [QuotaBucket]) -> some View {
+        VStack(spacing: 0) {
+            Button {
+                withAnimation(.easeInOut(duration: 0.15)) { showOtherGauges.toggle() }
+            } label: {
+                HStack(spacing: 6) {
+                    Image(systemName: showOtherGauges ? "chevron.down" : "chevron.right")
+                        .font(.system(size: 9, weight: .semibold))
+                        .foregroundStyle(.secondary)
+                    Text(l10n.t(.otherGauges)).font(.system(size: 12))
+                    Spacer()
+                }
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .padding(.horizontal, Metrics.hPad)
+            .padding(.vertical, 9)
+
+            if showOtherGauges {
+                gaugeList(gauges)
+            }
         }
     }
 
