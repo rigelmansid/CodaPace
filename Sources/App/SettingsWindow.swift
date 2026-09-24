@@ -54,7 +54,12 @@ struct SettingsView: View {
     /// 存档列表在它身上(EXT-010)。观察它,面板那边切了账户,这里「当前」标记跟着变
     @ObservedObject private var service = UsageService.shared
 
-    @State private var input: String = Config.consoleURL?.absoluteString ?? ""
+    /// 输入框每次打开都是空的。
+    ///
+    /// 从前预填当前账户的网址,且窗口只建一次、保存后也不清 —— 于是再打开时
+    /// 框里总是上一次配置的东西,像是还没保存。存过的账户现在在下面的存档列表里,
+    /// 输入框只管「配置一个新的」(EXT-010,用户实机后提出)。
+    @State private var input = ""
     @State private var result: TestResult = .idle
 
     /// 密钥默认遮起来。**刻意给一个「显示」开关** —— 粘贴错一个字符
@@ -196,7 +201,8 @@ struct SettingsView: View {
 
     // MARK: 存档管理(EXT-010)
 
-    /// 改名、删除在这里;切换在面板上(高频动作放面板,管理放这里)。
+    /// 切换、改名、删除都在这里。切换原先放在面板顶上的下拉里,用户看过实机后
+    /// 决定面板头部只显示账户名,切换挪到这张列表(EXT-010)。
     private var archiveList: some View {
         VStack(alignment: .leading, spacing: 6) {
             Text(l10n.t(.archiveSectionTitle))
@@ -415,6 +421,12 @@ struct SettingsView: View {
             if offersArchive && archiveOnSave {
                 service.archiveCurrentAccount(nickname: nickname)
             }
+            // 窗口只是藏起来,视图的状态会留到下次打开 —— 保存完就清回初始样子
+            input = ""
+            result = .idle
+            revealSecret = false
+            archiveOnSave = true
+            nickname = ""
             SettingsWindow.shared.close()
         } catch {
             // 钥匙串写失败时**窗口不关**:关掉的话界面会显示已配置,
@@ -426,7 +438,7 @@ struct SettingsView: View {
 
 // MARK: - 存档行
 
-/// 一条存档:可改的名字、哪一家、删除按钮。
+/// 一条存档:可改的名字、哪一家、切换按钮(当前那条是「当前」标记)、删除按钮。
 ///
 /// 名字用本地草稿,按回车才提交 —— 每敲一个字就写一次的话,清空重打的
 /// 中间那一刻会被 `AccountArchive.rename` 以「空白」拒掉,来回跳。
@@ -466,10 +478,16 @@ private struct ArchiveRow: View {
 
             Spacer()
 
+            // 当前那一行不给切换按钮 —— 切到自己什么也不发生,换成「当前」标记
             if isCurrent {
                 Text(l10n.t(.archiveCurrentTag))
                     .font(.system(size: 10))
                     .foregroundStyle(.secondary)
+            } else {
+                Button(l10n.t(.archiveSwitch)) {
+                    UsageService.shared.selectAccount(entry.account)
+                }
+                .controlSize(.small)
             }
 
             // 当前账户不许删(EXT-010)。灰掉的按钮在 AppKit 里不显示 tooltip,

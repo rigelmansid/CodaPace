@@ -210,63 +210,55 @@ struct PopoverView: View {
     // MARK: 头部
 
     private var header: some View {
-        HStack {
-            VStack(alignment: .leading, spacing: 1) {
-                Text(l10n.t(.appTitle)).font(.system(size: 13, weight: .semibold))
-                if let snapshot = service.snapshot {
-                    Text("\(snapshot.name) · \(l10n.t(snapshot.isActive ? .statusActive : .statusInactive))")
+        VStack(alignment: .leading, spacing: 1) {
+            Text(l10n.t(.appTitle)).font(.system(size: 13, weight: .semibold))
+            HStack(alignment: .firstTextBaseline) {
+                if let line = accountLine {
+                    Text(line)
                         .font(.system(size: 11))
                         .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
                 }
+                Spacer()
+                refreshButton
             }
-            Spacer()
-            accountPicker
-            Button {
-                Task { await service.refresh() }
-            } label: {
-                Image(systemName: "arrow.clockwise")
-            }
-            .buttonStyle(.borderless)
-            .disabled(service.isLoading)
         }
         .padding(.horizontal, Metrics.hPad)
         .padding(.vertical, 11)
     }
 
-    /// 账户下拉(EXT-010)。切换是这个功能里的高频动作,所以放面板;
-    /// 增删改名是低频的,放设置窗口。
+    /// 头部第二行:正在用的是哪个账户,以及它的状态。
     ///
-    /// **有别的账户可切才出现** —— 只有当前这一个的话,下拉里没东西可选。
-    /// 判据不是「存档不少于两条」:当前账户没存档而列表里有一条时,那一条就是可切的。
+    /// 名字优先用**用户存档时起的**(EXT-010)—— 存了多个账户之后,对方报的账户名
+    /// 未必分得开(两个中转站账户都可能叫 default)。没存档就用对方报的名字。
+    /// 状态只有快照在时才说:没拿到数据时说 Active 是编的(不变量 3)。
+    private var accountLine: String? {
+        let nickname = service.archive.nickname(for: Config.account)
+        guard let snapshot = service.snapshot else { return nickname }
+        let status = l10n.t(snapshot.isActive ? .statusActive : .statusInactive)
+        return "\(nickname ?? snapshot.name) · \(status)"
+    }
+
+    /// 刷新按钮。刷新在飞时图标一直转,直到结束。
     ///
-    /// 当前账户不在存档里时,列表顶上多一项「当前账户(未存档)」并处于选中。
-    /// 少了它,下拉的标签只能显示列表里的某一个名字,看起来像是选中了别的账户。
-    /// 选它什么也不做 —— 它就是现状。
-    @ViewBuilder
-    private var accountPicker: some View {
-        let current = Config.account
-        let archive = service.archive
-        if archive.entries.contains(where: { $0.account != current }) {
-            Picker("", selection: Binding(
-                get: { current },
-                set: { picked in
-                    guard picked != current, archive.contains(picked) else { return }
-                    service.selectAccount(picked)
-                }
-            )) {
-                if !archive.contains(current) {
-                    Text(l10n.t(.accountUnarchived)).tag(current)
-                    Divider()
-                }
-                ForEach(archive.entries, id: \.account) { entry in
-                    Text(entry.nickname).tag(entry.account)
-                }
+    /// 用 TimelineView 按时间算角度,而不是 `repeatForever` 动画 ——
+    /// 后者在 isLoading 变回 false 时停不干净(会跳回原位或继续转完一圈)。
+    /// 暂停后角度直接归零,停在哪都一样。
+    private var refreshButton: some View {
+        Button {
+            Task { await service.refresh() }
+        } label: {
+            TimelineView(.animation(paused: !service.isLoading)) { context in
+                Image(systemName: "arrow.clockwise")
+                    .rotationEffect(.degrees(service.isLoading
+                        ? context.date.timeIntervalSinceReferenceDate
+                            .truncatingRemainder(dividingBy: 1) * 360
+                        : 0))
             }
-            .pickerStyle(.menu)
-            .labelsHidden()
-            .controlSize(.small)
-            .frame(maxWidth: 150)
         }
+        .buttonStyle(.borderless)
+        .disabled(service.isLoading)
     }
 
     // MARK: 滚动区

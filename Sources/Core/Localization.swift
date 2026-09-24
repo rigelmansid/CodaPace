@@ -58,10 +58,10 @@ public enum LangKey: String, CaseIterable {
     case appTitle, statusActive, statusInactive, quit, updatedAt, settings
 
     // 账户存档(EXT-010)
-    case accountUnarchived
     case archiveOnSave, archiveNicknamePlaceholder, archiveSectionTitle, archiveCurrentTag
     case archiveDeleteCurrentHelp, archiveDeleteTitleFormat, archiveDeleteMessageSecret
     case archiveDeleteMessagePlain, archiveDelete, archiveCancel, archiveRenameHelp
+    case archiveSwitch
 
     // 设置分组
     case groupDisplay, groupAccount, groupLanguage
@@ -261,10 +261,6 @@ public enum L10n {
             .zhHans: "%@ 次", .zhHant: "%@ 次", .en: "%@ req"],
 
         // ── 账户存档 ──────────────────────────────────────
-        // 当前账户不在存档里时下拉显示这一项,且不可选 —— 不显示的话,
-        // 下拉的标签会让人以为选中的是列表里的某一个
-        .accountUnarchived: [
-            .zhHans: "当前账户(未存档)", .zhHant: "目前帳戶(未存檔)", .en: "Current account (not saved)"],
         .archiveOnSave: [
             .zhHans: "同时存档,名称:", .zhHant: "同時存檔,名稱:", .en: "Also save to the list as:"],
         .archiveNicknamePlaceholder: [
@@ -292,6 +288,8 @@ public enum L10n {
             .en: "It will be removed from the list. Local history is kept and reconnects if you add the same account again."],
         .archiveDelete: [
             .zhHans: "删除", .zhHant: "刪除", .en: "Delete"],
+        .archiveSwitch: [
+            .zhHans: "切换", .zhHant: "切換", .en: "Switch"],
         .archiveCancel: [
             .zhHans: "取消", .zhHant: "取消", .en: "Cancel"],
         .archiveRenameHelp: [
