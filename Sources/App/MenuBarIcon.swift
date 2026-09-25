@@ -38,7 +38,7 @@ enum MenuBarStyle: String, CaseIterable, Identifiable {
 // MARK: - 状态配色(AppKit 侧)
 
 private extension QuotaStatus {
-    /// 正常态用 labelColor —— 跟菜单栏前景色一致,和蓝色的时间环拉开区分;
+    /// 正常态用 labelColor —— 跟菜单栏前景色一致;时间环平时也是它,快到重置才变蓝;
     /// 只有需要提醒时才上橙/红。
     ///
     /// 「跟菜单栏前景色一致」以按**菜单栏的**外观解析为前提(见文件头)。
@@ -179,7 +179,7 @@ enum MenuBarIcon {
                  radius: innerRingRadius,
                  width: outerRingWidth * innerRatio,
                  ratio: window.remainingRatio(now: now),
-                 color: .systemBlue)
+                 color: timeColor(window, now: now))
         }
     }
 
@@ -206,6 +206,13 @@ enum MenuBarIcon {
         arc.stroke()
     }
 
+    /// 时间环 / 时间条的颜色:平时和额度环正常态一样用 labelColor,快到重置才变蓝。
+    ///
+    /// 这不违反「状态不只靠颜色表达」:环只剩不到五分之一,长度本身已经说了,颜色只是加一道提醒。
+    private static func timeColor(_ window: TimeWindow, now: Date) -> NSColor {
+        window.isNearingReset(now: now) ? .systemBlue : .labelColor
+    }
+
     // MARK: 横条
 
     /// 上面粗的是剩余额度,下面细的是剩余时间(没有窗口就只有一根)。
@@ -225,7 +232,7 @@ enum MenuBarIcon {
         bar(x: box.minX, y: top - barHeight, width: box.width,
             height: barHeight, ratio: gauge.remainingRatio, color: color)
         bar(x: box.minX, y: box.midY - stack / 2, width: box.width,
-            height: thin, ratio: window.remainingRatio(now: now), color: .systemBlue)
+            height: thin, ratio: window.remainingRatio(now: now), color: timeColor(window, now: now))
     }
 
     private static func bar(x: CGFloat, y: CGFloat, width: CGFloat, height: CGFloat,

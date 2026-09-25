@@ -12,6 +12,9 @@ let allSuites: [TestSuite] = [
         ("testElapsedAndRemainingRatio", { TimeWindowTests().testElapsedAndRemainingRatio() }),
         ("testRatiosAreClampedOutsideTheWindow", { TimeWindowTests().testRatiosAreClampedOutsideTheWindow() }),
         ("testZeroDurationDoesNotDivideByZero", { TimeWindowTests().testZeroDurationDoesNotDivideByZero() }),
+        ("testNearingResetStartsBelowTwentyPercentOfTimeLeft", { TimeWindowTests().testNearingResetStartsBelowTwentyPercentOfTimeLeft() }),
+        ("testNearingResetScalesWithWindowLength", { TimeWindowTests().testNearingResetScalesWithWindowLength() }),
+        ("testZeroDurationWindowIsNeverNearingReset", { TimeWindowTests().testZeroDurationWindowIsNeverNearingReset() }),
     ]),
 
     ("PaceTests", [

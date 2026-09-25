@@ -82,11 +82,12 @@ struct GaugeRow: View {
                             ratio: gauge.remainingRatio,
                             color: status.color)
 
+                // 和菜单栏时间环同一规则:平时和额度条正常态一样,快到重置才变蓝
                 if let window = gauge.window {
                     labelledBar(l10n.t(.timeRemaining),
                                 value: Fmt.percent(window.remainingRatio(now: now)),
                                 ratio: window.remainingRatio(now: now),
-                                color: .blue)
+                                color: window.isNearingReset(now: now) ? .blue : .primary)
                 }
 
                 footer

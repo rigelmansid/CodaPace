@@ -42,6 +42,15 @@ public struct TimeWindow: Equatable {
         1 - elapsedRatio(now: now)
     }
 
+    /// 快到重置了:剩余时间不足 `QuotaThresholds.nearingReset`。
+    ///
+    /// 菜单栏的时间环 / 时间条和面板的「剩余时间」条都靠它变蓝色,平时和额度正常态一样。
+    /// 意思是「额度还剩很多就抓紧用;已经在等重置的话,快到了」。两处共用这一个判断,
+    /// 不各自比一遍比例(不变量 5)。零长度窗口 remainingRatio 恒为 1,不会误亮。
+    public func isNearingReset(now: Date) -> Bool {
+        remainingRatio(now: now) < QuotaThresholds.nearingReset
+    }
+
     /// 这个时刻落在本周期里吗。右端开区间:走到 end 就已经是下一个周期了。
     ///
     /// 历史上某次重置发生在什么时刻,**不要**拿本窗口的秒数长度往回减 ——
@@ -161,6 +170,9 @@ public enum QuotaThresholds {
     public static let critical = 0.20
     /// 通知用的更低一档
     public static let notifyLow = 0.10
+    /// 剩余**时间**低于此比例 → 快到重置。和 `critical` 同值但是两件事,
+    /// 哪天想单独调其中一个不该牵动另一个。
+    public static let nearingReset = 0.20
 
     /// 周期短于这个长度就算「高频窗口」,菜单栏自动选择会避开它。
     ///

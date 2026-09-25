@@ -58,6 +58,32 @@ final class TimeWindowTests: XCTestCase {
         XCTAssertEqual(w.elapsedRatio(now: t), 0, accuracy: 1e-12)
         XCTAssertEqual(w.remainingRatio(now: t), 1, accuracy: 1e-12)
     }
+
+    /// 日窗口:剩 4.8 小时(20%)前后各一分钟。不卡恰好那一刻 ——
+    /// 1 − 0.8 在浮点里是 0.19999…,边界落在哪一侧没有意义,测它只会测出浮点误差
+    func testNearingResetStartsBelowTwentyPercentOfTimeLeft() {
+        let w = TimeWindow(start: makeDate(2026, 9, 8, 0, 0), end: makeDate(2026, 9, 9, 0, 0))
+        let threshold = makeDate(2026, 9, 8, 19, 12)   // 剩 4h48m = 20%
+
+        XCTAssertFalse(w.isNearingReset(now: makeDate(2026, 9, 8, 12, 0)))
+        XCTAssertFalse(w.isNearingReset(now: threshold.addingTimeInterval(-60)))
+        XCTAssertTrue(w.isNearingReset(now: threshold.addingTimeInterval(60)))
+        XCTAssertTrue(w.isNearingReset(now: makeDate(2026, 9, 8, 23, 59)))
+    }
+
+    /// 比例按周期长度等比:一小时的限流窗口是最后 12 分钟,不是固定的几小时
+    func testNearingResetScalesWithWindowLength() {
+        let start = makeDate(2026, 9, 8, 10, 0)
+        let w = TimeWindow(start: start, end: start.addingTimeInterval(3600))
+
+        XCTAssertFalse(w.isNearingReset(now: start.addingTimeInterval(47 * 60)))
+        XCTAssertTrue(w.isNearingReset(now: start.addingTimeInterval(49 * 60)))
+    }
+
+    func testZeroDurationWindowIsNeverNearingReset() {
+        let t = makeDate(2026, 9, 8)
+        XCTAssertFalse(TimeWindow(start: t, end: t).isNearingReset(now: t))
+    }
 }
 
 // MARK: - 消费速度
