@@ -155,6 +155,7 @@ struct PopoverView: View {
     @ObservedObject var service: UsageService
     @ObservedObject private var l10n = Localization.shared
     @StateObject private var history = HistoryModel()
+    @ObservedObject private var updates = UpdateChecker.shared
 
     @State private var showSettings = false
 
@@ -164,10 +165,11 @@ struct PopoverView: View {
 
     /// 滚动区的高度上限。
     /// visibleFrame 已排除菜单栏和程序坞;再减去固定的头部(约 52)、底部(约 34)、
-    /// 两条分隔线,并给窗口圆角与投影留些余量。
+    /// 两条分隔线,并给窗口圆角与投影留些余量。有更新提醒时底部再多一行(约 30)。
     private var maxContentHeight: CGFloat {
         let visible = NSScreen.main?.visibleFrame.height ?? 800
-        return max(180, visible - 120)
+        let updateRow: CGFloat = updates.available == nil ? 0 : 30
+        return max(180, visible - 120 - updateRow)
     }
 
     var body: some View {
@@ -193,6 +195,12 @@ struct PopoverView: View {
             }
             .frame(height: max(120, min(contentHeight, maxContentHeight)))
             .onPreferenceChange(ContentHeightKey.self) { contentHeight = $0 }
+
+            // 和底部一样固定、不随滚动区走 —— 设置区展开时也一眼能看到
+            if let version = updates.available {
+                Divider()
+                updateRow(version)
+            }
 
             Divider()
             footer
@@ -634,6 +642,27 @@ struct PopoverView: View {
     }
 
     // MARK: 底部
+
+    /// 只提醒不安装:打开 Release 页面,由用户自己下载或跑命令行重装(见 UpdateChecker 文件头)
+    private func updateRow(_ version: ReleaseVersion) -> some View {
+        Button { NSWorkspace.shared.open(UpdateChecker.releasePage) } label: {
+            HStack(spacing: 6) {
+                Image(systemName: "arrow.down.circle.fill")
+                    .font(.system(size: 12))
+                Text(l10n.f(.updateAvailableFormat, version.text))
+                    .font(.system(size: 11, weight: .medium))
+                Spacer(minLength: 0)
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 9, weight: .semibold))
+                    .foregroundStyle(.tertiary)
+            }
+            .foregroundStyle(Color.accentColor)
+            .contentShape(Rectangle())
+            .padding(.horizontal, Metrics.hPad)
+            .padding(.vertical, 7)
+        }
+        .buttonStyle(.plain)
+    }
 
     private var footer: some View {
         HStack {

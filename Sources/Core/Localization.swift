@@ -56,7 +56,7 @@ public enum Language: String, CaseIterable, Identifiable, Equatable {
 public enum LangKey: String, CaseIterable {
     // 面板框架
     case appTitle, statusActive, statusInactive, quit, updatedAt, settings
-    case otherGauges
+    case otherGauges, updateAvailableFormat
 
     // 账户存档(EXT-010)
     case archiveOnSave, archiveNicknamePlaceholder, archiveSectionTitle, archiveCurrentTag
@@ -264,6 +264,10 @@ public enum L10n {
         // 面板上菜单栏那条之外的额度,收在这个折叠区里
         .otherGauges: [
             .zhHans: "其他额度", .zhHant: "其他額度", .en: "Other quota"],
+
+        // 面板最下方的更新提醒,点了打开 Release 页面
+        .updateAvailableFormat: [
+            .zhHans: "有新版本 %@", .zhHant: "有新版本 %@", .en: "Version %@ available"],
 
         // ── 账户存档 ──────────────────────────────────────
         .archiveOnSave: [

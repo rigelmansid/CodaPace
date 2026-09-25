@@ -88,6 +88,8 @@ inference, history, charts and alerts, is shared.
 - Alerts for *running low* and *being used quickly*, deduplicated per reset cycle so a 60-second
   refresh can't turn into a notification loop
 - Status is never carried by color alone. Every state has an icon or a label
+- When a new version is out, a row at the bottom of the popover links to its release page. It
+  only tells you; downloading and installing stay in your hands
 
 ### Languages
 - English, Simplified Chinese and Traditional Chinese, switchable without restarting
@@ -113,8 +115,18 @@ open /Applications/CodaPace.app
 ```
 
 A copy installed this way isn't quarantined, because `curl` doesn't mark what it downloads, so
-macOS opens it without the Gatekeeper prompt. To update, quit CodaPace and run the same three
-commands again.
+macOS opens it without the Gatekeeper prompt.
+
+To update, quit CodaPace and remove the old copy first, then run the three commands above:
+
+```bash
+osascript -e 'quit app "CodaPace"'
+rm -rf /Applications/CodaPace.app
+```
+
+`ditto` merges into an existing app instead of replacing it, so skipping the removal can leave
+files from the old version behind. Removing the app doesn't touch your accounts, saved list or
+history, which live outside it.
 
 ### Download
 
@@ -193,8 +205,10 @@ see the prompt once per saved key after each update.
 <details>
 <summary><b>What data does CodaPace store, and where does it send it?</b></summary>
 
-- **Network:** only the relay URL you entered, or `coding.tu-zi.com` for tu-zi accounts. No
-  analytics, no other hosts.
+- **Network:** the relay URL you entered, or `coding.tu-zi.com` for tu-zi accounts, plus
+  `api.github.com` once a day to check for a new version. The update check is an anonymous request
+  for this project's latest release and carries nothing about you or your accounts. No analytics,
+  no other hosts.
 - **Preferences** (`~/Library/Preferences/com.hesher.codapace.plist`): the relay URL and `apiId`,
   the saved-account list (names and identifiers, no keys), and your display settings.
 - **Keychain:** tu-zi API keys, under the service name `CodaPace`, readable only on this Mac.
@@ -242,7 +256,7 @@ active account. Saved accounts make switching quick instead.
 
 ```bash
 ./build.sh                      # build CodaPace.app
-swift run CoreTests             # 411 unit tests
+swift run CoreTests             # 416 unit tests
 swift Scripts/make-icon.swift   # regenerate Resources/AppIcon.icns
 ```
 

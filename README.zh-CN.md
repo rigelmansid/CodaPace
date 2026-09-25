@@ -82,6 +82,7 @@
 - 两种样式：双环或横条
 - 「额度不足」和「用得太快」两种提醒，按重置周期去重，60 秒一次的刷新不会变成 60 秒一条通知
 - 状态从不只靠颜色表达，每种状态都有图标或文字
+- 有新版本时，面板最下方出现一行提醒，点开是那一版的 Release 页面。只提醒，下载和安装由你自己来
 
 ### 语言
 - 简体中文、繁体中文、English，切换不用重启
@@ -107,7 +108,16 @@ open /Applications/CodaPace.app
 ```
 
 这样装的副本不带隔离标记（`curl` 不给下载的文件打这个标记），所以打开时 macOS 不会拦。
-升级时先退出 CodaPace，再把这三条命令跑一遍。
+
+升级时先退出 CodaPace、删掉旧版，再跑上面三条命令：
+
+```bash
+osascript -e 'quit app "CodaPace"'
+rm -rf /Applications/CodaPace.app
+```
+
+`ditto` 是把文件合并进已有的 app，而不是整个替换，不删旧版可能留下旧版本的文件。
+删掉 app 不会动你的账户、存档列表和历史，它们都存在 app 外面。
 
 ### 下载安装
 
@@ -176,7 +186,9 @@ CodaPace 一贯拒绝这样做：
 <details>
 <summary><b>CodaPace 存了哪些数据，会发到哪里？</b></summary>
 
-- **网络：** 只访问你填的中转站网址，tu-zi 账户则只访问 `coding.tu-zi.com`。没有统计上报，不连其他任何地址。
+- **网络：** 访问你填的中转站网址，tu-zi 账户则访问 `coding.tu-zi.com`；另外每天访问一次 `api.github.com`
+  检查有没有新版本。这个检查是匿名查询本项目的最新版本号，不带任何关于你或你账户的信息。
+  没有统计上报，不连其他任何地址。
 - **偏好设置**（`~/Library/Preferences/com.hesher.codapace.plist`）：中转站网址和 `apiId`、
   已存档账户列表（名字和标识，不含 key），以及显示设置。
 - **钥匙串：** tu-zi 的 API Key，服务名为 `CodaPace`，只存在这台 Mac 上。
@@ -220,7 +232,7 @@ claude-relay-service 不公布每天几点重置。CodaPace 先假定是本地�
 
 ```bash
 ./build.sh                      # 构建 CodaPace.app
-swift run CoreTests             # 411 个单元测试
+swift run CoreTests             # 416 个单元测试
 swift Scripts/make-icon.swift   # 重新生成 Resources/AppIcon.icns
 ```
 

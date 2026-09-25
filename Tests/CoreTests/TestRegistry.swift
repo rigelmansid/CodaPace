@@ -620,4 +620,12 @@ let allSuites: [TestSuite] = [
         ("testWindowlessQuotaDedupesPerDay", { AlertPolicyTests().testWindowlessQuotaDedupesPerDay() }),
         ("testMultipleQuotasAlertIndependently", { AlertPolicyTests().testMultipleQuotasAlertIndependently() }),
     ]),
+
+    ("ReleaseVersionTests", [
+        ("testLeadingVIsStrippedForDisplay", { ReleaseVersionTests().testLeadingVIsStrippedForDisplay() }),
+        ("testMalformedTagsAreRejected", { ReleaseVersionTests().testMalformedTagsAreRejected() }),
+        ("testComponentsCompareAsIntegersNotText", { ReleaseVersionTests().testComponentsCompareAsIntegersNotText() }),
+        ("testMissingTrailingComponentsCountAsZero", { ReleaseVersionTests().testMissingTrailingComponentsCountAsZero() }),
+        ("testHigherMajorWinsRegardlessOfMinor", { ReleaseVersionTests().testHigherMajorWinsRegardlessOfMinor() }),
+    ]),
 ]

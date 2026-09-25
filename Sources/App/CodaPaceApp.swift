@@ -13,6 +13,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         UsageService.shared.start()
+        UpdateChecker.shared.start()
 
         // 没配置过就直接把设置窗口推到眼前 —— 否则新用户只会看到一个
         // 写着「未配置」的菜单栏图标,不知道下一步该干什么
