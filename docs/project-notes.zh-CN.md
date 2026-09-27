@@ -297,7 +297,7 @@ XCTAssertEqual(points.first?.value, 42)   // 空数组时正常报失败，不�
 
 ## 交接：上次停在哪（2026-09-26）
 
-- **本地领先 origin 若干提交，是用户刻意没推**（新版本提醒、时间环规则、EXT-011 与各段记录）。推送和发版都等用户开口。
+- **2026-09-27 已推送**，本地与 origin 同步。发版仍等用户开口。
 - **本机当前运行的可能是 `build/` 里的开发构建**，不是 `/Applications` 里的 2.0 正式版。构建新版前先退出；要换回正式版就退出后 `open /Applications/CodaPace.app`。
 - **下次发版要做的**：`Info.plist` 两个版本键改成 2.1（否则更新提醒不会对任何人触发）；Release 说明写上「新版本提醒」、新的升级命令（先退出、删旧 app，见 README），以及「已装 2.0 的用户这一次仍需手动升级」。**已发布的 v2.0 Release 说明里仍是旧的升级命令**，没改线上内容。
 - **悬而未决、等用户的**：EXT-011 下一步要真实的 new-api / sub2api 账户；应用内一键安装是否做、签名走 CryptoKit 还是 Developer ID（见下文「应用内更新」一节的待决问题）。
@@ -453,7 +453,7 @@ EXT-001 阶段 2 的 v3 → v4 迁移**不丢任何历史**（四个固定列原
 | `swift --version` | Apple Swift 6.4，target `arm64-apple-macosx26.0` |
 | 可用 SDK | MacOSX26 / 26.5 / 27.0 / 27（构建取 26） |
 | Xcode.app | **不存在**，`xcode-select -p` → CommandLineTools |
-| git | 远端 `origin` 在 GitHub，本地领先若干提交；以 `git status -sb` 为准 |
+| git | 远端 `origin` 在 GitHub；是否领先以 `git status -sb` 为准 |
 
 ### 已知的文档过时点
 
