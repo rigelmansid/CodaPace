@@ -80,6 +80,22 @@ let allSuites: [TestSuite] = [
         ("testDeclaresTheTwoThingsTheRelayDoesNotProvide", { RelayProviderTests().testDeclaresTheTwoThingsTheRelayDoesNotProvide() }),
     ]),
 
+    ("Sub2APIProviderTests", [
+        ("testKeyWindowsUseTheServersResetTimes", { Sub2APIProviderTests().testKeyWindowsUseTheServersResetTimes() }),
+        ("testKeyWindowTitlesDoNotClaimCalendarPeriods", { Sub2APIProviderTests().testKeyWindowTitlesDoNotClaimCalendarPeriods() }),
+        ("testTheTotalQuotaHasNoPeriod", { Sub2APIProviderTests().testTheTotalQuotaHasNoPeriod() }),
+        ("testAnUnusedWindowHasNoPeriod", { Sub2APIProviderTests().testAnUnusedWindowHasNoPeriod() }),
+        ("testTotalsComeFromUsageTotal", { Sub2APIProviderTests().testTotalsComeFromUsageTotal() }),
+        ("testSubscriptionDailyResetIsInferredAtTheServersMidnight", { Sub2APIProviderTests().testSubscriptionDailyResetIsInferredAtTheServersMidnight() }),
+        ("testSubscriptionWeekRunsSevenDaysFromTheServersAnchor", { Sub2APIProviderTests().testSubscriptionWeekRunsSevenDaysFromTheServersAnchor() }),
+        ("testSubscriptionMonthHasNoPeriodBecauseTheAnchorIsNotReported", { Sub2APIProviderTests().testSubscriptionMonthHasNoPeriodBecauseTheAnchorIsNotReported() }),
+        ("testASubscriptionPeriodWithoutALimitIsNotShown", { Sub2APIProviderTests().testASubscriptionPeriodWithoutALimitIsNotShown() }),
+        ("testTheRequestGoesToTheSiteRootWithTheKey", { Sub2APIProviderTests().testTheRequestGoesToTheSiteRootWithTheKey() }),
+        ("testAWalletOnlyKeyIsRejectedWithAClearMessage", { Sub2APIProviderTests().testAWalletOnlyKeyIsRejectedWithAClearMessage() }),
+        ("testBothFailureShapesSurfaceTheServersMessage", { Sub2APIProviderTests().testBothFailureShapesSurfaceTheServersMessage() }),
+        ("testIdentityIsAStableHashOfTheKey", { Sub2APIProviderTests().testIdentityIsAStableHashOfTheKey() }),
+    ]),
+
     ("TuziDecodingTests", [
         ("testAccountIDComesFromKeyID", { TuziDecodingTests().testAccountIDComesFromKeyID() }),
         ("testDecodesTheThreeWindows", { TuziDecodingTests().testDecodesTheThreeWindows() }),
@@ -168,9 +184,11 @@ let allSuites: [TestSuite] = [
         ("testTheTuziPayAsYouGoConsoleIsNotTuziCoding", { ProviderRegistryTests().testTheTuziPayAsYouGoConsoleIsNotTuziCoding() }),
         ("testLookalikeDomainsAreNotTuzi", { ProviderRegistryTests().testLookalikeDomainsAreNotTuzi() }),
         ("testARelayAdminPageWithoutApiIdIsPointedToTheStatsURL", { ProviderRegistryTests().testARelayAdminPageWithoutApiIdIsPointedToTheStatsURL() }),
-        ("testUnknownSitesAndNonURLsHaveNoOwner", { ProviderRegistryTests().testUnknownSitesAndNonURLsHaveNoOwner() }),
+        ("testNonURLsHaveNoOwner", { ProviderRegistryTests().testNonURLsHaveNoOwner() }),
+        ("testUnknownSitesFallToTheGenericRelaySoftwareAsAGuess", { ProviderRegistryTests().testUnknownSitesFallToTheGenericRelaySoftwareAsAGuess() }),
+        ("testTheGenericAdapterNeverShadowsASpecificOne", { ProviderRegistryTests().testTheGenericAdapterNeverShadowsASpecificOne() }),
         ("testTheTuziBaseURLPlusAKeyMakesTheSameConnection", { ProviderRegistryTests().testTheTuziBaseURLPlusAKeyMakesTheSameConnection() }),
-        ("testSitePlusKeyNeedsAKnownSiteThatTakesAKey", { ProviderRegistryTests().testSitePlusKeyNeedsAKnownSiteThatTakesAKey() }),
+        ("testSitePlusKeyNeedsASiteThatTakesAKey", { ProviderRegistryTests().testSitePlusKeyNeedsASiteThatTakesAKey() }),
     ]),
 
     ("ProviderScopedIdentityTests", [

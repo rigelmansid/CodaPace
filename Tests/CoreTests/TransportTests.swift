@@ -18,7 +18,8 @@ import CodaPaceCore
 ///
 /// 是 class 而不是 struct:它要记下收到的请求,而 struct 得另外拿个引用盒子装。
 /// `HTTPTransport` 没有值语义约束,class 照样满足。
-private final class StubTransport: HTTPTransport, @unchecked Sendable {
+/// 不是 private:sub2api 的测试也用它,各抄一份会各自漂移。
+final class StubTransport: HTTPTransport, @unchecked Sendable {
 
     enum Outcome {
         case status(Int, Data)

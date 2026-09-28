@@ -355,7 +355,8 @@ struct SettingsView: View {
             } else if let resolved {
                 VStack(alignment: .leading, spacing: 3) {
                     // 只说「认出是哪家」,不说「能用」—— 那要等真请求跑通
-                    hint(l10n.f(.setupRecognizedFormat, resolved.adapter.displayName),
+                    hint(l10n.f(resolved.adapter.siteMatchIsGuess ? .setupWillTestAsFormat : .setupRecognizedFormat,
+                                resolved.adapter.displayName),
                          color: .secondary)
 
                     // 保存按钮灰着总得有个理由。这家的账户标识在响应里,
@@ -368,7 +369,8 @@ struct SettingsView: View {
             } else if let keyOwner {
                 // 地址认出来了,还差 key。key 填了却拼不出连接,多半是粘错了东西
                 if keyInput.isEmpty {
-                    hint(l10n.f(.setupSiteNeedsKeyFormat, keyOwner.displayName), color: .secondary)
+                    hint(l10n.f(keyOwner.siteMatchIsGuess ? .setupSiteGuessFormat : .setupSiteNeedsKeyFormat,
+                                keyOwner.displayName), color: .secondary)
                 } else {
                     hint(l10n.f(.setupKeyUnrecognizedFormat, keyOwner.displayName), color: .orange)
                 }

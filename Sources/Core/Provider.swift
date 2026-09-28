@@ -158,6 +158,10 @@ public protocol UsageProviderAdapter {
     /// 地址 + key 两段拼成一个连接。只有 `keyFollowsSite` 为真的适配器才会被问到。
     func parseConnection(site: URLComponents, key: String) -> Connection?
 
+    /// `recognizesSite` 为真只是**猜测**:通用的中转站软件适配器认任何网址,
+    /// 界面上就不能说「已识别」,要说「将按 X 测试」—— 真正确认靠测试连接。
+    var siteMatchIsGuess: Bool { get }
+
     /// 这个适配器**可能**认识这个输入。
     ///
     /// 只是候选判断,不是结论:域名本身不足以证明对方跑的是这套协议
@@ -226,6 +230,8 @@ public extension UsageProviderAdapter {
     var keyFollowsSite: Bool { false }
 
     func parseConnection(site: URLComponents, key: String) -> Connection? { nil }
+
+    var siteMatchIsGuess: Bool { false }
 }
 
 // MARK: - 注册表
@@ -236,8 +242,10 @@ public extension UsageProviderAdapter {
 /// 变成往数组里加一项,而不是在刷新流程里加分支 —— 那正是 EXT-002 的验收标准。
 public enum ProviderRegistry {
 
-    /// 已知适配器,按 detect 的尝试顺序排列
-    public static let all: [UsageProviderAdapter] = [RelayProvider(), TuziProvider()]
+    /// 已知适配器,按 detect 的尝试顺序排列。
+    ///
+    /// **通用的排最后**:sub2api 认任何网址,排前面会把专门认得的站点抢走(EXT-011)。
+    public static let all: [UsageProviderAdapter] = [RelayProvider(), TuziProvider(), Sub2APIProvider()]
 
     /// 兜底适配器:存量配置里没有 providerID,一律按它算。
     public static var fallback: UsageProviderAdapter { RelayProvider() }

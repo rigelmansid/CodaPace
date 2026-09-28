@@ -74,6 +74,7 @@ public enum LangKey: String, CaseIterable {
     // 额度名称
     case sourceAuto, quotaTotal, quotaDaily, quotaWeeklyOpus, quotaWindow
     case quotaWeekly, quotaMonthly
+    case quotaFiveHours, quotaOneDay, quotaSevenDays, quotaThirtyDays
 
     // 菜单栏样式
     case styleRings, styleBar
@@ -114,6 +115,7 @@ public enum LangKey: String, CaseIterable {
     case setupUnsupported, setupRecognizedFormat
     case setupSiteRecognizedFormat, inputHintApiKey, inputHintStatsPage
     case setupAddressPlaceholder, setupKeyPlaceholder, setupSiteNeedsKeyFormat, setupKeyUnrecognizedFormat
+    case setupSiteGuessFormat, setupWillTestAsFormat, errSub2apiWalletMode
 
     // 连接报告里的提示
     case findNoLimitedQuota, findIncompleteUsage, findDailyResetInferred
@@ -214,6 +216,16 @@ public enum L10n {
             .zhHans: "本周", .zhHant: "本週", .en: "This week"],
         .quotaMonthly: [
             .zhHans: "本月", .zhHant: "本月", .en: "This month"],
+        // 从第一次使用起算的固定时长(sub2api)。**不是**自然日、自然周,
+        // 所以不用「今日」「本周」—— 那会说出对方没说过的事
+        .quotaFiveHours: [
+            .zhHans: "5 小时", .zhHant: "5 小時", .en: "5 hours"],
+        .quotaOneDay: [
+            .zhHans: "24 小时", .zhHant: "24 小時", .en: "24 hours"],
+        .quotaSevenDays: [
+            .zhHans: "7 天", .zhHant: "7 天", .en: "7 days"],
+        .quotaThirtyDays: [
+            .zhHans: "30 天", .zhHant: "30 天", .en: "30 days"],
 
         // ── 菜单栏样式 ────────────────────────────────────
         .styleRings: [
@@ -537,6 +549,19 @@ public enum L10n {
             .zhHans: "服务地址(编程工具里填的 Base URL)",
             .zhHant: "服務位址(編程工具裡填的 Base URL)",
             .en: "Service address (the Base URL from your coding tool)"],
+        // 通用适配器认任何网址,那不是「识别」,是「先按它试」(EXT-011)
+        .setupSiteGuessFormat: [
+            .zhHans: "未识别的站点,将按 %@ 测试。请在下方粘贴 API Key",
+            .zhHant: "未識別的站點,將按 %@ 測試。請在下方貼上 API Key",
+            .en: "Unrecognized site — it will be tested as %@. Paste its API key below."],
+        .setupWillTestAsFormat: [
+            .zhHans: "未识别的站点,将按 %@ 测试", .zhHant: "未識別的站點,將按 %@ 測試",
+            .en: "Unrecognized site — it will be tested as %@"],
+        // 钱包余额没有周期,给不出 pace,不在接入范围内(EXT-011)
+        .errSub2apiWalletMode: [
+            .zhHans: "这把 key 是钱包余额模式,没有周期额度,CodaPace 暂不支持",
+            .zhHant: "這把 key 是錢包餘額模式,沒有週期額度,CodaPace 暫不支援",
+            .en: "This key draws from a wallet balance with no periodic quota, which CodaPace doesn’t support yet"],
         .setupKeyPlaceholder: [
             .zhHans: "API Key", .zhHant: "API Key", .en: "API key"],
         .setupSiteNeedsKeyFormat: [

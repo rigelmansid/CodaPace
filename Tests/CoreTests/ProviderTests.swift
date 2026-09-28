@@ -159,14 +159,15 @@ final class ProviderRegistryTests: XCTestCase {
     func testTheTuziPayAsYouGoConsoleIsNotTuziCoding() {
         for page in ["api.tu-zi.com/console", "https://api.tu-zi.com/", "tu-zi.com",
                      "https://api.tu-zi.com/codingx"] {
-            XCTAssertNil(ProviderRegistry.siteOwner(for: page), page)
+            XCTAssertNotEqual(ProviderRegistry.siteOwner(for: page)?.providerID, TuziProvider.id, page)
         }
     }
 
     /// 安全边界:别人的域名不能被认成 tu-zi(EXT-011)
     func testLookalikeDomainsAreNotTuzi() {
-        XCTAssertNil(ProviderRegistry.siteOwner(for: "https://evil-tu-zi.com/console"))
-        XCTAssertNil(ProviderRegistry.siteOwner(for: "https://coding.tu-zi.com.evil.example/"))
+        for page in ["https://evil-tu-zi.com/console", "https://coding.tu-zi.com.evil.example/"] {
+            XCTAssertNotEqual(ProviderRegistry.siteOwner(for: page)?.providerID, TuziProvider.id, page)
+        }
     }
 
     /// 统计页没带 apiId:解析不出连接,但认得出是中转站的后台
@@ -177,10 +178,29 @@ final class ProviderRegistryTests: XCTestCase {
         XCTAssertEqual(ProviderRegistry.siteOwner(for: page)?.inputHint, .inputHintStatsPage)
     }
 
-    func testUnknownSitesAndNonURLsHaveNoOwner() {
-        for input in ["https://example.com/dashboard", "", "hello world", "sk"] {
+    /// 不是网址就谁都不认。「sk」补上 https:// 后像个主机名,但没有点号 ——
+    /// 它照样会被当成网址,这里只要求它不被认成专门的那几家
+    func testNonURLsHaveNoOwner() {
+        for input in ["", "hello world"] {
             XCTAssertNil(ProviderRegistry.siteOwner(for: input), input)
         }
+    }
+
+    /// 陌生网址归通用的中转站软件适配器,而且那是**猜的**:界面据此说「将按 sub2api 测试」,
+    /// 不说「已识别」(EXT-011)
+    func testUnknownSitesFallToTheGenericRelaySoftwareAsAGuess() {
+        let owner = ProviderRegistry.siteOwner(for: "https://example.com/dashboard")
+        XCTAssertEqual(owner?.providerID, Sub2APIProvider.id)
+        XCTAssertEqual(owner?.siteMatchIsGuess, true)
+        XCTAssertEqual(ProviderRegistry.siteOwner(for: "coding.tu-zi.com")?.siteMatchIsGuess, false)
+    }
+
+    /// 通用的排在最后:专门认得的站点不能被它抢走
+    func testTheGenericAdapterNeverShadowsASpecificOne() {
+        XCTAssertEqual(ProviderRegistry.siteOwner(for: "https://api.tu-zi.com/coding")?.providerID,
+                       TuziProvider.id)
+        XCTAssertEqual(ProviderRegistry.siteOwner(for: "https://relay.example.com/admin-next/")?.providerID,
+                       RelayProvider.id)
     }
 
     // ── 先粘服务地址,再给 key(EXT-011) ──────────────────────
@@ -193,10 +213,8 @@ final class ProviderRegistryTests: XCTestCase {
         XCTAssertEqual(viaSite?.connection.secret, "sk-abc")
     }
 
-    /// 地址认不出、这家不收 key、或者 key 不像 key —— 都拼不出连接,不猜
-    func testSitePlusKeyNeedsAKnownSiteThatTakesAKey() {
-        XCTAssertNil(ProviderRegistry.parse(site: "https://example.com", key: "sk-abc"))
-        XCTAssertNil(ProviderRegistry.parse(site: "https://api.tu-zi.com/console", key: "sk-abc"))
+    /// 这家不收 key、或者 key 不像 key —— 都拼不出连接,不猜
+    func testSitePlusKeyNeedsASiteThatTakesAKey() {
         // 中转站的后台要的是带 apiId 的统计页网址,不是 key
         XCTAssertNil(ProviderRegistry.parse(site: "https://relay.example.com/admin-next/", key: "sk-abc"))
         XCTAssertNil(ProviderRegistry.parse(site: "https://api.tu-zi.com/coding", key: ""))
