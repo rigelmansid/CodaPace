@@ -142,10 +142,21 @@ public protocol UsageProviderAdapter {
 
     /// 这是不是这家的网站 —— 用户粘的不是凭据,而是那家的某个页面地址。
     ///
-    /// 只用来**指路**(「这是 X 的网站,请改粘 Y」),不发任何请求,也不据此解析连接。
+    /// 认出来之后:这家要 key 的(`keyFollowsSite`)就接着要 key,不要的只**指路**
+    /// (「这是 X 的网站,请改粘 Y」)。这一步不发任何请求。
     /// 服务商类按域名认,中转站类按路径认(自建的什么域名都有)。
     /// 域名匹配必须带点号:只写「以 `tu-zi.com` 结尾」会让 `evil-tu-zi.com` 也命中(EXT-011)。
     func recognizesSite(_ url: URLComponents) -> Bool
+
+    /// 认出网站之后,是不是接着要用户给一把 key。
+    ///
+    /// 「先粘服务地址」(EXT-011,2026-09-28):用户在编程工具(Claude Code、Codex 等)里本来就填过
+    /// Base URL 和 key 两样。先粘地址,由域名认出是哪家、哪个区 —— 各家的 key 都是
+    /// `sk-` 开头,光看 key 分不出来。为真时设置窗口在地址下面多出一个 key 框。
+    var keyFollowsSite: Bool { get }
+
+    /// 地址 + key 两段拼成一个连接。只有 `keyFollowsSite` 为真的适配器才会被问到。
+    func parseConnection(site: URLComponents, key: String) -> Connection?
 
     /// 这个适配器**可能**认识这个输入。
     ///
@@ -210,6 +221,11 @@ public extension UsageProviderAdapter {
 
     /// 默认认不出任何网站 —— 认不出就如实说认不出
     func recognizesSite(_ url: URLComponents) -> Bool { false }
+
+    /// 默认只认一段输入(统计页网址,或者一把 key)
+    var keyFollowsSite: Bool { false }
+
+    func parseConnection(site: URLComponents, key: String) -> Connection? { nil }
 }
 
 // MARK: - 注册表
@@ -306,12 +322,27 @@ public enum ProviderRegistry {
     ///
     /// 没写 `https://` 的(`api.tu-zi.com/console`)补上再认:用户从地址栏抄时常常丢掉它。
     public static func siteOwner(for input: String) -> UsageProviderAdapter? {
+        guard let url = siteURL(input) else { return nil }
+        return all.first { $0.recognizesSite(url) }
+    }
+
+    /// 「先粘服务地址」的第二步:地址认出是哪家、这家要 key,就用这把 key 拼出连接。
+    public static func parse(site: String, key: String) -> (adapter: UsageProviderAdapter,
+                                                            connection: Connection)? {
+        guard let url = siteURL(site),
+              let owner = all.first(where: { $0.recognizesSite(url) }),
+              let connection = owner.parseConnection(site: url, key: key)
+        else { return nil }
+        return (owner, connection)
+    }
+
+    private static func siteURL(_ input: String) -> URLComponents? {
         let text = input.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty, !text.contains(where: { $0.isWhitespace }) else { return nil }
         guard let url = URLComponents(string: text.contains("://") ? text : "https://" + text),
               url.host?.isEmpty == false
         else { return nil }
-        return all.first { $0.recognizesSite(url) }
+        return url
     }
 }
 

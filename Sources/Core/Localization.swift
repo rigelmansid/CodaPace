@@ -113,6 +113,7 @@ public enum LangKey: String, CaseIterable {
     case setupSuccessFormat, setupFailureFormat
     case setupUnsupported, setupRecognizedFormat
     case setupSiteRecognizedFormat, inputHintApiKey, inputHintStatsPage
+    case setupAddressPlaceholder, setupKeyPlaceholder, setupSiteNeedsKeyFormat, setupKeyUnrecognizedFormat
 
     // 连接报告里的提示
     case findNoLimitedQuota, findIncompleteUsage, findDailyResetInferred
@@ -530,6 +531,21 @@ public enum L10n {
             .zhHans: "请改粘贴 API Key(sk-…)",
             .zhHant: "請改貼上 API Key(sk-…)",
             .en: "Paste an API key (sk-…) instead."],
+        // 「先粘服务地址」(EXT-011):第一个框提示的是用户在编程工具里本来就填过的那个。
+        // 不点名某一个工具:Claude Code 和 Codex 的订阅都在支持范围内
+        .setupAddressPlaceholder: [
+            .zhHans: "服务地址(编程工具里填的 Base URL)",
+            .zhHant: "服務位址(編程工具裡填的 Base URL)",
+            .en: "Service address (the Base URL from your coding tool)"],
+        .setupKeyPlaceholder: [
+            .zhHans: "API Key", .zhHant: "API Key", .en: "API key"],
+        .setupSiteNeedsKeyFormat: [
+            .zhHans: "已识别:%@。请在下方粘贴 API Key",
+            .zhHant: "已識別:%@。請在下方貼上 API Key",
+            .en: "Recognized: %@. Paste its API key below."],
+        .setupKeyUnrecognizedFormat: [
+            .zhHans: "这不像 %@ 的 API Key", .zhHant: "這不像 %@ 的 API Key",
+            .en: "That doesn’t look like a %@ API key"],
         .inputHintStatsPage: [
             .zhHans: "请打开 API 统计页,粘贴地址栏里带 apiId 的完整网址",
             .zhHant: "請打開 API 統計頁,貼上網址列中帶 apiId 的完整網址",

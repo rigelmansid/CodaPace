@@ -182,6 +182,26 @@ final class ProviderRegistryTests: XCTestCase {
             XCTAssertNil(ProviderRegistry.siteOwner(for: input), input)
         }
     }
+
+    // ── 先粘服务地址,再给 key(EXT-011) ──────────────────────
+
+    /// 用户在编程工具里填的 Base URL + key,拼出的连接和单独粘 key 的一模一样
+    func testTheTuziBaseURLPlusAKeyMakesTheSameConnection() {
+        let viaSite = ProviderRegistry.parse(site: "https://api.tu-zi.com/coding", key: "sk-abc")
+        XCTAssertEqual(viaSite?.adapter.providerID, TuziProvider.id)
+        XCTAssertEqual(viaSite?.connection, ProviderRegistry.parse("sk-abc")?.connection)
+        XCTAssertEqual(viaSite?.connection.secret, "sk-abc")
+    }
+
+    /// 地址认不出、这家不收 key、或者 key 不像 key —— 都拼不出连接,不猜
+    func testSitePlusKeyNeedsAKnownSiteThatTakesAKey() {
+        XCTAssertNil(ProviderRegistry.parse(site: "https://example.com", key: "sk-abc"))
+        XCTAssertNil(ProviderRegistry.parse(site: "https://api.tu-zi.com/console", key: "sk-abc"))
+        // 中转站的后台要的是带 apiId 的统计页网址,不是 key
+        XCTAssertNil(ProviderRegistry.parse(site: "https://relay.example.com/admin-next/", key: "sk-abc"))
+        XCTAssertNil(ProviderRegistry.parse(site: "https://api.tu-zi.com/coding", key: ""))
+        XCTAssertNil(ProviderRegistry.parse(site: "https://api.tu-zi.com/coding", key: "not a key"))
+    }
 }
 
 // MARK: - providerID 进入身份

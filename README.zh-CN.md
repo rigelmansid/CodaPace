@@ -52,7 +52,7 @@
 | 服务 | 粘贴什么 | 额度 | 凭据存在哪 |
 |---|---|---|---|
 | [claude-relay-service](https://github.com/Wei-Shaw/claude-relay-service) | 用量统计页面的网址，`https://your-relay.example.com/admin-next/api-stats?apiId=…` | 总额度、今日、本周 Opus、限流窗口 | 偏好设置。`apiId` 是只读标识，发不了请求 |
-| [tu-zi Coding](https://api.tu-zi.com/) | 一把 API Key，`sk-…` | 今日、本周、本月 | macOS 钥匙串，因为这把 key 能花钱 |
+| [tu-zi Coding](https://api.tu-zi.com/) | 编程工具里填的服务地址，比如 `https://api.tu-zi.com/coding`，再粘 API Key（`sk-…`） | 今日、本周、本月 | macOS 钥匙串，因为这把 key 能花钱 |
 
 **不支持** Anthropic 官方 API、Amazon Bedrock、Google Vertex AI，以及 LiteLLM、OpenRouter 这类网关。
 它们的用量接口各不相同，官方 API 更是根本没有按 key 查额度的接口。
@@ -232,7 +232,7 @@ claude-relay-service 不公布每天几点重置。CodaPace 先假定是本地�
 
 ```bash
 ./build.sh                      # 构建 CodaPace.app
-swift run CoreTests             # 424 个单元测试
+swift run CoreTests             # 426 个单元测试
 swift Scripts/make-icon.swift   # 重新生成 Resources/AppIcon.icns
 ```
 

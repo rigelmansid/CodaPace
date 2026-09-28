@@ -60,6 +60,9 @@ struct SettingsView: View {
     /// 框里总是上一次配置的东西,像是还没保存。存过的账户现在在下面的存档列表里,
     /// 输入框只管「配置一个新的」(EXT-010,用户实机后提出)。
     @State private var input = ""
+
+    /// 第二个框:地址认出是哪家、这家要 key 时才出现(「先粘服务地址」,EXT-011)
+    @State private var keyInput = ""
     @State private var result: TestResult = .idle
 
     /// 密钥默认遮起来。**刻意给一个「显示」开关** —— 粘贴错一个字符
@@ -87,13 +90,30 @@ struct SettingsView: View {
     /// 解析归适配器 —— 「那段输入」是什么本来就因家而异:
     /// 中转站要的是用量页面网址,tu-zi 要的是一把 key。
     private var resolved: (adapter: UsageProviderAdapter, connection: Connection)? {
-        ProviderRegistry.parse(input)
+        ProviderRegistry.parse(input) ?? ProviderRegistry.parse(site: input, key: keyInput)
     }
 
-    /// 输入里带的是密钥吗。决定输入框要不要遮,以及能不能不测试就保存。
-    private var carriesSecret: Bool {
-        resolved?.adapter.credentialSensitivity == .secret
+    /// 第一个框里粘的是服务地址,认出是哪家,而这家接着要一把 key。
+    /// 有值时才显示 key 框。
+    private var keyOwner: UsageProviderAdapter? {
+        guard ProviderRegistry.parse(input) == nil,
+              let owner = ProviderRegistry.siteOwner(for: input), owner.keyFollowsSite
+        else { return nil }
+        return owner
     }
+
+    /// 第一个框里粘的就是密钥(单独粘 key 的老用法)。决定第一个框要不要遮。
+    private var inputIsSecret: Bool {
+        ProviderRegistry.parse(input)?.adapter.credentialSensitivity == .secret
+    }
+
+    /// 这次配置带不带密钥。决定说明文案、安全提示,以及要不要显示「显示密钥」开关。
+    private var carriesSecret: Bool {
+        (resolved?.adapter ?? keyOwner)?.credentialSensitivity == .secret
+    }
+
+    /// 在飞的测试认的是**两个框合起来**那段输入 —— 改了任一个,旧结果都不再说明屏幕上的东西
+    private var probeKey: String { input + "\n" + keyInput }
 
     /// 测试成功时的那份报告,否则 nil。
     private var report: ConnectionReport? {
@@ -136,7 +156,7 @@ struct SettingsView: View {
                     .font(.system(size: 14, weight: .semibold))
                 // 还认不出是哪家时,不说该填什么 —— 直接把支持列表摆出来,
                 // 让用户按自己那家的名字去对。认出来之后再给针对性的指引。
-                if resolved == nil {
+                if resolved == nil && keyOwner == nil {
                     Text(l10n.t(.setupPickYourProvider))
                         .font(.system(size: 11))
                         .foregroundStyle(.secondary)
@@ -269,38 +289,60 @@ struct SettingsView: View {
     /// 通用层不该硬编码某一家的格式(不变量 6)。
     @ViewBuilder
     private var inputField: some View {
-        HStack(spacing: 6) {
-            Group {
-                if carriesSecret && !revealSecret {
-                    SecureField(placeholder, text: $input)
-                } else {
-                    TextField(placeholder, text: $input)
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 6) {
+                Group {
+                    if inputIsSecret && !revealSecret {
+                        SecureField(placeholder, text: $input)
+                    } else {
+                        TextField(placeholder, text: $input)
+                    }
                 }
-            }
-            .textFieldStyle(.roundedBorder)
-            .font(.system(size: 11, design: .monospaced))
-            .onChange(of: input) { _ in
-                // 输入一变,上一次的测试结果就不再说明这段文字了。
-                // 对 tu-zi 这还顺带把保存按钮重新锁上 —— 正是要的行为。
-                result = .idle
+                .textFieldStyle(.roundedBorder)
+                .font(.system(size: 11, design: .monospaced))
+                .onChange(of: input) { _ in
+                    // 输入一变,上一次的测试结果就不再说明这段文字了。
+                    // 对 tu-zi 这还顺带把保存按钮重新锁上 —— 正是要的行为。
+                    result = .idle
+                }
+
+                if inputIsSecret { revealToggle }
             }
 
-            if carriesSecret {
-                Button {
-                    revealSecret.toggle()
-                } label: {
-                    Image(systemName: revealSecret ? "eye.slash" : "eye")
-                        .font(.system(size: 11))
+            // 地址认出是哪家、这家要 key 时才出现 —— 平时仍是一个框
+            if keyOwner != nil {
+                HStack(spacing: 6) {
+                    Group {
+                        if revealSecret {
+                            TextField(l10n.t(.setupKeyPlaceholder), text: $keyInput)
+                        } else {
+                            SecureField(l10n.t(.setupKeyPlaceholder), text: $keyInput)
+                        }
+                    }
+                    .textFieldStyle(.roundedBorder)
+                    .font(.system(size: 11, design: .monospaced))
+                    .onChange(of: keyInput) { _ in result = .idle }
+
+                    revealToggle
                 }
-                .buttonStyle(.borderless)
-                .help(l10n.t(revealSecret ? .setupHideSecret : .setupRevealSecret))
             }
         }
     }
 
-    private var placeholder: String {
-        (resolved?.adapter ?? ProviderRegistry.fallback).inputExample
+    private var revealToggle: some View {
+        Button {
+            revealSecret.toggle()
+        } label: {
+            Image(systemName: revealSecret ? "eye.slash" : "eye")
+                .font(.system(size: 11))
+        }
+        .buttonStyle(.borderless)
+        .help(l10n.t(revealSecret ? .setupHideSecret : .setupRevealSecret))
     }
+
+    /// 第一个框提示的是服务地址 —— 用户在编程工具(Claude Code、Codex 等)里本来就填过的那个(EXT-011)。
+    /// 各家具体要什么,在上方的支持列表里按名字对。
+    private var placeholder: String { l10n.t(.setupAddressPlaceholder) }
 
     // MARK: 状态行
 
@@ -322,6 +364,13 @@ struct SettingsView: View {
                     if needsVerification {
                         hint(l10n.t(.setupMustTestFirst), color: .orange)
                     }
+                }
+            } else if let keyOwner {
+                // 地址认出来了,还差 key。key 填了却拼不出连接,多半是粘错了东西
+                if keyInput.isEmpty {
+                    hint(l10n.f(.setupSiteNeedsKeyFormat, keyOwner.displayName), color: .secondary)
+                } else {
+                    hint(l10n.f(.setupKeyUnrecognizedFormat, keyOwner.displayName), color: .orange)
                 }
             } else if let owner = ProviderRegistry.siteOwner(for: input) {
                 // 粘的是那家的网站而不是凭据。认得出是哪家,就直接指路,
@@ -393,7 +442,7 @@ struct SettingsView: View {
 
         // 整个流程只认这一段输入。和刷新那边同一个道理:
         // 中途用户可能已经把网址改了,那这次的结果就不属于屏幕上这段文字了。
-        let probed = input
+        let probed = probeKey
         guard probe.begin(probed) else { return }
         result = .testing
 
@@ -405,13 +454,13 @@ struct SettingsView: View {
                                                                language: l10n.language)
                 // 提交前校验:输入变了就整份丢掉 ——
                 // 否则界面会显示「连接成功」,而那说的是上一个网址
-                guard input == probed else { return }
+                guard probeKey == probed else { return }
                 result = .success(report)
                 // 预填昵称。已存过的沿用用户起的名字 —— 重测一次不该把它冲掉
                 let account = ProviderRegistry.resolvedForSaving(resolved.connection, report: report)?.account
                 nickname = account.flatMap { service.archive.nickname(for: $0) } ?? report.accountName
             } catch {
-                guard input == probed else { return }
+                guard probeKey == probed else { return }
                 result = .failure(error.localizedDescription)
             }
         }
@@ -429,6 +478,7 @@ struct SettingsView: View {
             }
             // 窗口只是藏起来,视图的状态会留到下次打开 —— 保存完就清回初始样子
             input = ""
+            keyInput = ""
             result = .idle
             revealSecret = false
             archiveOnSave = true

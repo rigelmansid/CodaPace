@@ -169,6 +169,8 @@ let allSuites: [TestSuite] = [
         ("testLookalikeDomainsAreNotTuzi", { ProviderRegistryTests().testLookalikeDomainsAreNotTuzi() }),
         ("testARelayAdminPageWithoutApiIdIsPointedToTheStatsURL", { ProviderRegistryTests().testARelayAdminPageWithoutApiIdIsPointedToTheStatsURL() }),
         ("testUnknownSitesAndNonURLsHaveNoOwner", { ProviderRegistryTests().testUnknownSitesAndNonURLsHaveNoOwner() }),
+        ("testTheTuziBaseURLPlusAKeyMakesTheSameConnection", { ProviderRegistryTests().testTheTuziBaseURLPlusAKeyMakesTheSameConnection() }),
+        ("testSitePlusKeyNeedsAKnownSiteThatTakesAKey", { ProviderRegistryTests().testSitePlusKeyNeedsAKnownSiteThatTakesAKey() }),
     ]),
 
     ("ProviderScopedIdentityTests", [

@@ -46,9 +46,10 @@ public struct TuziProvider: UsageProviderAdapter {
     /// 于是 `Config.apply` 那道守卫会把它挡在明文存储之外,逼着走钥匙串。
     public var credentialSensitivity: CredentialSensitivity { .secret }
 
-    /// 只给**形状**,不带家名 —— 设置界面的支持列表会把 displayName 排在它前面,
-    /// 再写一遍就成了「tu-zi    sk-…(tu-zi 的 API Key)」
-    public var inputExample: String { "sk-…" }
+    /// 只给**形状**,不带家名 —— 设置界面的支持列表会把 displayName 排在它前面。
+    /// 先写地址:那是用户在编程工具里填的 Base URL,「先粘服务地址」的第一步(EXT-011)。
+    /// 单独粘一把 key 仍然认 —— 眼下只有这一家的 key 是 `sk-`,不会撞车。
+    public var inputExample: String { "https://api.tu-zi.com/coding  +  sk-…" }
 
     public var inputHint: LangKey { .inputHintApiKey }
 
@@ -59,6 +60,14 @@ public struct TuziProvider: UsageProviderAdapter {
     /// 照做了也连不上 —— 指错路比说「认不出」更糟(EXT-011)。
     /// `api.tu-zi.com/coding` 例外:那是用户在 Claude Code 里填的 Coding Plan 地址。
     /// 主机名全等比较,不做后缀匹配,也就不存在 `evil-tu-zi.com` 的问题。
+    public var keyFollowsSite: Bool { true }
+
+    /// 地址只用来认出是这家(`ProviderRegistry` 已经问过 `recognizesSite`);
+    /// 请求地址仍是写死的 `baseURL` —— 用量接口不在用户填的那个域名下。
+    public func parseConnection(site: URLComponents, key: String) -> Connection? {
+        parseConnection(key)
+    }
+
     public func recognizesSite(_ url: URLComponents) -> Bool {
         switch url.host?.lowercased() {
         case "coding.tu-zi.com", "store.tu-zi.com":
