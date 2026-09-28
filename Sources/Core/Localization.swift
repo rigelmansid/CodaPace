@@ -118,7 +118,7 @@ public enum LangKey: String, CaseIterable {
     case setupSiteGuessFormat, setupWillTestAsFormat, errSub2apiWalletMode
 
     // 连接报告里的提示
-    case findNoLimitedQuota, findIncompleteUsage, findDailyResetInferred
+    case findNoLimitedQuota, findIncompleteUsage, findResetInferred
     case findNoResetWindow, findHistoryIsLocalOnly
 
     // 通知
@@ -585,10 +585,11 @@ public enum L10n {
             .zhHans: "响应缺少部分用量字段,这次的数字不会计入历史",
             .zhHant: "回應缺少部分用量欄位,這次的數字不會計入歷史",
             .en: "Some usage fields are missing — this reading won’t enter history"],
-        .findDailyResetInferred: [
-            .zhHans: "接口不提供日重置时刻,将由观测推算,在此之前标注为推算",
-            .zhHant: "介面不提供日重置時刻,將由觀測推算,在此之前標註為推算",
-            .en: "The API doesn’t publish the daily reset hour — it will be inferred and labelled as such"],
+        // 不点名是怎么推的:中转站靠观测学,sub2api 按服务端时区推,说法各不相同
+        .findResetInferred: [
+            .zhHans: "部分额度的重置时刻是推算的,界面上会标注「推算」",
+            .zhHant: "部分額度的重設時刻是推算的,介面上會標註「推算」",
+            .en: "Some reset times are inferred and will be labelled as such"],
         .findNoResetWindow: [
             .zhHans: "没有可信的重置周期,速度判断不可用",
             .zhHant: "沒有可信的重置週期,速度判斷不可用",

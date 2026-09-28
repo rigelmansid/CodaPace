@@ -384,6 +384,8 @@ private func reportSnapshot(gauges: [QuotaBucket], complete: Bool = true) -> Sna
 final class ConnectionReportTests: XCTestCase {
 
     private let window = TimeWindow(start: Date(), end: Date().addingTimeInterval(3600))
+    private let inferredWindow = TimeWindow(start: Date(), end: Date().addingTimeInterval(3600),
+                                            isInferred: true)
 
     /// 账户名和状态必须来自**真实响应**,不是从输入里猜的
     func testAccountFactsComeFromTheResponse() {
@@ -416,33 +418,47 @@ final class ConnectionReportTests: XCTestCase {
         XCTAssertTrue(report.findings.contains(.noResetWindow))
     }
 
-    /// 能力声明缺失会直接变成用户看得见的提示 —— 这是能力声明真正被消费的地方
-    func testMissingCapabilitiesBecomeFindings() {
+    /// 没有历史接口会直接变成用户看得见的提示 —— 这是能力声明被消费的地方
+    func testAMissingHistoryCapabilityBecomesAFinding() {
         let report = ConnectionReport(
             snapshot: reportSnapshot(gauges: [bucket("daily", used: 5, limit: 10,
                                                     window: window)]),
             providerID: "p", displayName: "P", capabilities: [])
-        XCTAssertTrue(report.findings.contains(.dailyResetInferred))
         XCTAssertTrue(report.findings.contains(.historyIsLocalOnly))
     }
 
-    func testDeclaredCapabilitiesProduceNoSuchFindings() {
+    /// 「推算」看的是**这次实际拿到的周期**,不看能力声明(EXT-011):
+    /// 服务端给了起止的,不管声明了什么,都不该说成推算
+    func testOnlyAnInferredPeriodBecomesTheInferredFinding() {
+        let given = ConnectionReport(
+            snapshot: reportSnapshot(gauges: [bucket("daily", used: 5, limit: 10, window: window)]),
+            providerID: "p", displayName: "P", capabilities: [])
+        XCTAssertFalse(given.findings.contains(.resetInferred))
+
+        let inferred = ConnectionReport(
+            snapshot: reportSnapshot(gauges: [bucket("daily", used: 5, limit: 10, window: inferredWindow)]),
+            providerID: "p", displayName: "P", capabilities: [.dailyResetTime])
+        XCTAssertTrue(inferred.findings.contains(.resetInferred))
+    }
+
+    func testDeclaredHistoryAndGivenPeriodsProduceNoFindings() {
         let report = ConnectionReport(
             snapshot: reportSnapshot(gauges: [bucket("daily", used: 5, limit: 10,
                                                     window: window)]),
             providerID: "p", displayName: "P",
-            capabilities: [.dailyResetTime, .usageHistory])
+            capabilities: [.usageHistory])
         XCTAssertEqual(report.findings, [])
     }
 
-    /// 中转站的真实情况:两条「不给」如实出现在报告里
+    /// 中转站的真实情况:测试连接时还没学到日重置,日额度按默认假设推算 ——
+    /// 两条「不给」如实出现在报告里
     func testRelayReportsItsTwoKnownLimitations() {
         let report = ConnectionReport(
             snapshot: reportSnapshot(gauges: [bucket("daily", used: 5, limit: 10,
-                                                    window: window)]),
+                                                    window: inferredWindow)]),
             providerID: relay.providerID, displayName: relay.displayName,
             capabilities: relay.capabilities)
-        XCTAssertEqual(report.findings, [.dailyResetInferred, .historyIsLocalOnly])
+        XCTAssertEqual(report.findings, [.resetInferred, .historyIsLocalOnly])
     }
 }
 

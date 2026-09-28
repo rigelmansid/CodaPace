@@ -257,7 +257,7 @@ active account. Saved accounts make switching quick instead.
 
 ```bash
 ./build.sh                      # build CodaPace.app
-swift run CoreTests             # 441 unit tests
+swift run CoreTests             # 443 unit tests
 swift Scripts/make-icon.swift   # regenerate Resources/AppIcon.icns
 ```
 

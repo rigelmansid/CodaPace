@@ -419,7 +419,7 @@ struct SettingsView: View {
         switch finding {
         case .noLimitedQuota:      return .findNoLimitedQuota
         case .incompleteUsage:     return .findIncompleteUsage
-        case .dailyResetInferred:  return .findDailyResetInferred
+        case .resetInferred:       return .findResetInferred
         case .noResetWindow:       return .findNoResetWindow
         case .historyIsLocalOnly:  return .findHistoryIsLocalOnly
         }

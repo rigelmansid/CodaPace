@@ -180,6 +180,19 @@ final class Sub2APIProviderTests: XCTestCase {
         XCTAssertEqual(snap.gauges.map(\.id), ["daily", "weekly"])
     }
 
+    /// 「推算」提示看实际数据:key 限额的窗口是服务端给的,不提示;订阅的日重置是推的,提示
+    func testTheInferredFindingFollowsTheMode() {
+        guard let limited = snapshot(quotaLimited, now: "2026-09-28T15:30:00.000000+08:00"),
+              let subscribed = snapshot(subscription, now: "2026-09-28T15:30:00.000000+08:00")
+        else { return }
+        let report = { (snap: Snapshot) in
+            ConnectionReport(snapshot: snap, providerID: sub2api.providerID,
+                             displayName: sub2api.displayName, capabilities: sub2api.capabilities)
+        }
+        XCTAssertFalse(report(limited).findings.contains(.resetInferred))
+        XCTAssertTrue(report(subscribed).findings.contains(.resetInferred))
+    }
+
     // ── 抓取路径 ──────────────────────────────────────────
 
     /// 用户粘的 Base URL 可能带 /v1;用量接口在站点根上,key 走 Bearer

@@ -419,8 +419,14 @@ public struct ConnectionReport: Equatable {
         case noLimitedQuota
         /// 响应里有必要字段缺失或为 null,对应数值是退回来的 0
         case incompleteUsage
-        /// 供应商不提供日重置时刻,只能由 app 观测,在那之前标注「推算」
-        case dailyResetInferred
+        /// 至少一条额度的周期是推算出来的(默认假设、按时区推出、尚未观测到),
+        /// 界面上会标注「推算」。
+        ///
+        /// **看这次实际拿到的数据,不看能力声明**:从前按「没声明 `.dailyResetTime`」给出,
+        /// 文案写的是「将由观测推算」—— 那只对中转站成立。sub2api 的 key 限额窗口是
+        /// 服务端给的,订阅的日重置是按时区推的,两种都不靠观测,那句话对它两头都不对
+        /// (EXT-011,2026-09-28)。
+        case resetInferred
         /// 没有任何可信周期,算不出速度判断
         case noResetWindow
         /// 供应商没有历史接口,历史只能从装上这天起本地积累
@@ -455,7 +461,7 @@ public extension ConnectionReport {
         if snapshot.limited.isEmpty { findings.append(.noLimitedQuota) }
         if !snapshot.hasCompleteUsage { findings.append(.incompleteUsage) }
         if snapshot.gauges.allSatisfy({ $0.window == nil }) { findings.append(.noResetWindow) }
-        if !capabilities.contains(.dailyResetTime) { findings.append(.dailyResetInferred) }
+        if snapshot.gauges.contains(where: { $0.window?.isInferred == true }) { findings.append(.resetInferred) }
         if !capabilities.contains(.usageHistory) { findings.append(.historyIsLocalOnly) }
 
         self.init(providerID: providerID,
@@ -477,8 +483,8 @@ public extension UsageProviderAdapter {
     /// 这是有意的 —— 域名像不像、路径对不对都不算数,只有真请求跑通,
     /// 才算确认这个适配器认得对方的协议。`detect` 从头到尾只是个排序提示。
     func verify(_ connection: Connection, language: Language) async throws -> ConnectionReport {
-        // 这时还没学到任何重置规则,给一个默认 schedule;
-        // 报告里的 dailyResetInferred 本来就是照能力声明给的,不依赖它。
+        // 这时还没学到任何重置规则,给一个默认 schedule —— 于是要靠观测学日重置的
+        // 中转站,日额度此刻按默认假设推算,报告里如实出现 resetInferred。
         let snapshot = try await fetchUsage(connection, schedule: ResetSchedule(), language: language)
         return ConnectionReport(snapshot: snapshot,
                                 providerID: providerID,
