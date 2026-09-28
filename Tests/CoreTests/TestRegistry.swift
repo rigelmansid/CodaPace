@@ -164,6 +164,11 @@ let allSuites: [TestSuite] = [
         ("testParseReturnsBothTheAdapterAndTheAccount", { ProviderRegistryTests().testParseReturnsBothTheAdapterAndTheAccount() }),
         ("testUnparsableInputResolvesToNothing", { ProviderRegistryTests().testUnparsableInputResolvesToNothing() }),
         ("testCandidatesAreFilteredByDetect", { ProviderRegistryTests().testCandidatesAreFilteredByDetect() }),
+        ("testATuziPageIsPointedToTheKey", { ProviderRegistryTests().testATuziPageIsPointedToTheKey() }),
+        ("testTheTuziPayAsYouGoConsoleIsNotTuziCoding", { ProviderRegistryTests().testTheTuziPayAsYouGoConsoleIsNotTuziCoding() }),
+        ("testLookalikeDomainsAreNotTuzi", { ProviderRegistryTests().testLookalikeDomainsAreNotTuzi() }),
+        ("testARelayAdminPageWithoutApiIdIsPointedToTheStatsURL", { ProviderRegistryTests().testARelayAdminPageWithoutApiIdIsPointedToTheStatsURL() }),
+        ("testUnknownSitesAndNonURLsHaveNoOwner", { ProviderRegistryTests().testUnknownSitesAndNonURLsHaveNoOwner() }),
     ]),
 
     ("ProviderScopedIdentityTests", [

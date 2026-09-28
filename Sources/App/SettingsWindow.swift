@@ -323,6 +323,11 @@ struct SettingsView: View {
                         hint(l10n.t(.setupMustTestFirst), color: .orange)
                     }
                 }
+            } else if let owner = ProviderRegistry.siteOwner(for: input) {
+                // 粘的是那家的网站而不是凭据。认得出是哪家,就直接指路,
+                // 而不是只说一句「认不出」让用户自己去猜该粘什么
+                hint(l10n.f(.setupSiteRecognizedFormat, owner.displayName, l10n.t(owner.inputHint)),
+                     color: .orange)
             } else {
                 // 认不出来就如实说认不出来,不猜一个出来
                 hint(l10n.t(.setupUnsupported), color: .red)

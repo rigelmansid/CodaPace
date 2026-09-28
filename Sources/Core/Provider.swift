@@ -117,7 +117,15 @@ public protocol UsageProviderAdapter {
     /// 稳定标识。写进配置用它,**不用展示名** —— 展示名会随本地化和措辞变。
     var providerID: String { get }
 
-    /// 给人看的名字
+    /// 给人看的名字。
+    ///
+    /// 命名规则:**中转站类用软件名**(`claude-relay-service`),一个适配器对应一种软件;
+    /// **服务商类用「品牌 + 产品」**(`tu-zi Coding`)—— 同一家常有好几条产品线,
+    /// 只写品牌名会让人以为别的产品线也支持(`api.tu-zi.com` 的按量付费站就是这么被
+    /// 当成已支持的)。**不写类别**:「中转站」「服务商」是我们的分类,不该让用户先
+    /// 给自己归类(见 EXT-011)。
+    ///
+    /// 只给人看:改它不影响任何存量数据,存进配置的是 `providerID`。
     var displayName: String { get }
 
     var capabilities: ProviderCapabilities { get }
@@ -128,6 +136,16 @@ public protocol UsageProviderAdapter {
     /// 一个能让用户照着填的网址示例。设置界面拿它当提示,
     /// 所以提示文案不该在通用层硬编码某一家的格式。
     var inputExample: String { get }
+
+    /// 一句话告诉用户**该粘什么**。用户粘错了东西(比如那家的网站地址)时显示。
+    var inputHint: LangKey { get }
+
+    /// 这是不是这家的网站 —— 用户粘的不是凭据,而是那家的某个页面地址。
+    ///
+    /// 只用来**指路**(「这是 X 的网站,请改粘 Y」),不发任何请求,也不据此解析连接。
+    /// 服务商类按域名认,中转站类按路径认(自建的什么域名都有)。
+    /// 域名匹配必须带点号:只写「以 `tu-zi.com` 结尾」会让 `evil-tu-zi.com` 也命中(EXT-011)。
+    func recognizesSite(_ url: URLComponents) -> Bool
 
     /// 这个适配器**可能**认识这个输入。
     ///
@@ -189,6 +207,9 @@ public extension UsageProviderAdapter {
 
     /// 默认不需要观测日重置 —— 需要的一方自己声明是哪条额度
     var learnableDailyBucketID: String? { nil }
+
+    /// 默认认不出任何网站 —— 认不出就如实说认不出
+    func recognizesSite(_ url: URLComponents) -> Bool { false }
 }
 
 // MARK: - 注册表
@@ -279,6 +300,18 @@ public enum ProviderRegistry {
             if let connection = adapter.parseConnection(input) { return (adapter, connection) }
         }
         return nil
+    }
+
+    /// 解析不出连接时,这段输入是不是**某一家的网站地址**。
+    ///
+    /// 没写 `https://` 的(`api.tu-zi.com/console`)补上再认:用户从地址栏抄时常常丢掉它。
+    public static func siteOwner(for input: String) -> UsageProviderAdapter? {
+        let text = input.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty, !text.contains(where: { $0.isWhitespace }) else { return nil }
+        guard let url = URLComponents(string: text.contains("://") ? text : "https://" + text),
+              url.host?.isEmpty == false
+        else { return nil }
+        return all.first { $0.recognizesSite(url) }
     }
 }
 

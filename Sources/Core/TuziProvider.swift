@@ -38,7 +38,9 @@ public struct TuziProvider: UsageProviderAdapter {
     }
 
     public var providerID: String { Self.id }
-    public var displayName: String { "tu-zi" }
+    /// 带产品名:tu-zi 还有 `api.tu-zi.com` 的按量付费站(new-api),那个**不支持**,
+    /// 只写「tu-zi」会让人以为两个都行。providerID 仍是 `tu-zi`,改名不动存量数据。
+    public var displayName: String { "tu-zi Coding" }
 
     /// `sk-` key 能发起真实 API 调用、能花钱。只能声明 `.secret` ——
     /// 于是 `Config.apply` 那道守卫会把它挡在明文存储之外,逼着走钥匙串。
@@ -47,6 +49,26 @@ public struct TuziProvider: UsageProviderAdapter {
     /// 只给**形状**,不带家名 —— 设置界面的支持列表会把 displayName 排在它前面,
     /// 再写一遍就成了「tu-zi    sk-…(tu-zi 的 API Key)」
     public var inputExample: String { "sk-…" }
+
+    public var inputHint: LangKey { .inputHintApiKey }
+
+    /// 只认 Coding Plan 自己的地址,**不认整个 `tu-zi.com`**。
+    ///
+    /// `api.tu-zi.com` 的控制台是另一条产品线(按量付费,new-api),不支持。
+    /// 曾经整个域名都认,于是粘了那边的控制台地址会被指去「粘 sk- key」,
+    /// 照做了也连不上 —— 指错路比说「认不出」更糟(EXT-011)。
+    /// `api.tu-zi.com/coding` 例外:那是用户在 Claude Code 里填的 Coding Plan 地址。
+    /// 主机名全等比较,不做后缀匹配,也就不存在 `evil-tu-zi.com` 的问题。
+    public func recognizesSite(_ url: URLComponents) -> Bool {
+        switch url.host?.lowercased() {
+        case "coding.tu-zi.com", "store.tu-zi.com":
+            return true
+        case "api.tu-zi.com":
+            return url.path == "/coding" || url.path.hasPrefix("/coding/")
+        default:
+            return false
+        }
+    }
 
     /// 身份在响应里,不在输入里:用户给的是一把 key,`key_id` 得问了才知道。
     public var accountIDComesFromResponse: Bool { true }

@@ -142,6 +142,46 @@ final class ProviderRegistryTests: XCTestCase {
         XCTAssertEqual(ProviderRegistry.candidates(for: statsURL).count, 1)
         XCTAssertEqual(ProviderRegistry.candidates(for: "https://example.com/").count, 0)
     }
+
+    // ── siteOwner:粘错了东西时指路 ──────────────────────────
+
+    /// Coding Plan 的地址。用户从地址栏抄来的常常不带 `https://`
+    func testATuziPageIsPointedToTheKey() {
+        for page in ["coding.tu-zi.com", "https://store.tu-zi.com/user/usage/codex",
+                     "https://api.tu-zi.com/coding"] {
+            XCTAssertEqual(ProviderRegistry.siteOwner(for: page)?.providerID, TuziProvider.id, page)
+        }
+        XCTAssertEqual(ProviderRegistry.siteOwner(for: "coding.tu-zi.com")?.inputHint, .inputHintApiKey)
+    }
+
+    /// `api.tu-zi.com` 的控制台是按量付费的 new-api 站,不是 Coding Plan。
+    /// 认成 tu-zi Coding 会指用户去粘一把连不上的 key(用户 2026-09-28 实机撞上的)
+    func testTheTuziPayAsYouGoConsoleIsNotTuziCoding() {
+        for page in ["api.tu-zi.com/console", "https://api.tu-zi.com/", "tu-zi.com",
+                     "https://api.tu-zi.com/codingx"] {
+            XCTAssertNil(ProviderRegistry.siteOwner(for: page), page)
+        }
+    }
+
+    /// 安全边界:别人的域名不能被认成 tu-zi(EXT-011)
+    func testLookalikeDomainsAreNotTuzi() {
+        XCTAssertNil(ProviderRegistry.siteOwner(for: "https://evil-tu-zi.com/console"))
+        XCTAssertNil(ProviderRegistry.siteOwner(for: "https://coding.tu-zi.com.evil.example/"))
+    }
+
+    /// 统计页没带 apiId:解析不出连接,但认得出是中转站的后台
+    func testARelayAdminPageWithoutApiIdIsPointedToTheStatsURL() {
+        let page = "https://relay.example.com/admin-next/api-stats"
+        XCTAssertNil(ProviderRegistry.parse(page))
+        XCTAssertEqual(ProviderRegistry.siteOwner(for: page)?.providerID, RelayProvider.id)
+        XCTAssertEqual(ProviderRegistry.siteOwner(for: page)?.inputHint, .inputHintStatsPage)
+    }
+
+    func testUnknownSitesAndNonURLsHaveNoOwner() {
+        for input in ["https://example.com/dashboard", "", "hello world", "sk"] {
+            XCTAssertNil(ProviderRegistry.siteOwner(for: input), input)
+        }
+    }
 }
 
 // MARK: - providerID 进入身份
@@ -284,6 +324,7 @@ private struct SecretBearingStub: UsageProviderAdapter {
     var capabilities: ProviderCapabilities { [] }
     var credentialSensitivity: CredentialSensitivity { .secret }
     var inputExample: String { "" }
+    var inputHint: LangKey { .inputHintApiKey }
     func detect(_ input: String) -> Bool { false }
     func parseConnection(_ input: String) -> Connection? { nil }
     func managementURL(for account: AccountIdentity) -> URL? { nil }

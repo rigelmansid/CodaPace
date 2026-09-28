@@ -781,6 +781,55 @@ ChartPalette
 
 这几条**在不统一的前提下大多不再需要**；但「专门在前、通用在后」和「域名匹配带点号」两条，将来接 new-api 通用适配器时照样适用。
 
+### 实测：`api.tu-zi.com`（2026-09-28）
+
+用户问 `https://api.tu-zi.com/console` 支不支持。**不支持，而且眼下不值得接。**
+
+- 它是 tu-zi 的**按量付费站**，和已支持的 `coding.tu-zi.com`（Coding Plan）是两套东西。公开的 `/api/status` 是 new-api 的格式，站名「兔子API」。
+- 用量接口是 `/api/usage/token/`，**要带结尾斜杠**，不带会 301。
+- 单位有据：`/api/status` 公开 `quota_per_unit = 500000`、`display_in_currency = true`、`quota_display_type = USD`。可以按这个换算成美元，不算发明（不变量 3）。
+- 信封和文档不一样：成功是 `{"code": true, "data": …, "message": "ok"}`，失败是 `{"success": false, "message": …}`。
+- **用户那把令牌是 `unlimited_quota: true`**：`total_granted` 是 500000（$1），`total_used` 远大于它，`total_available` 是负数。不限额的令牌，这三个数里只有「已用」是真的。显示一个负余额就是撒谎。
+- 真正在扣的是**账户余额**，只有 `/api/user/self` 给。它不认 `sk-` key，要控制台生成的「系统访问令牌」加 `New-Api-User` 请求头，那把令牌能以用户身份操作整个账户。只为显示一个没有周期、给不出 pace 的余额，不值得让用户交出它。
+
+### 实测：GAC Code（`gaccode.com`，2026-09-28）
+
+用户问 `https://gaccode.com/credits` 属于哪类适配器。**服务商类，自家平台，不是 new-api，也不是 CRS。不接。**
+
+- 整站是一个单页应用，所有路径都返回同一个网页。`/api/status` 是它自家的健康状态，不是 new-api 的格式。
+- 积分页调用 `GET /api/credits/balance`，认证用的是**网页登录后存在 `localStorage` 里的 `token`**。
+- 额度模型本来很合适：后台有 `creditsCap`（积分上限）和 `refillRate`（每日补充），有周期，可能给得出 pace 判断。另外还有加油包和美元账户。
+- **API Key 查不了**：用户拿自己的 key（`sk-ant-oat01-` 开头，故意做成官方 OAuth 令牌的样子，好让 Claude Code 直接用）请求 `/api/credits/balance`，返回 `{"error":"Unauthorized"}`。
+- 只剩登录令牌这条路，而它能以用户身份操作整个账户（改密码、建删 key 都走同一个令牌）。和 `api.tu-zi.com` 的 `/api/user/self` 是同一个取舍，同样不接。
+
+**什么时候重新考虑**：它开放了用 API Key 查积分的接口，或者用户愿意接受交出登录令牌。
+
+### 已完成：统一命名 + 粘错时指路（2026-09-28）
+
+用户提出：适配器统一命名；粘了用量网址时告诉用户这是哪家、该粘什么。
+
+- **命名规则**写在 `UsageProviderAdapter.displayName` 的注释里：中转站类用软件名，服务商类用「品牌 + 产品」，不写类别。tu-zi 改名为 **`tu-zi Coding`**，和按量付费站区分开。**`providerID` 没改**，存量配置、历史分区、通知去重都不受影响。
+- 适配器新增两项声明：
+  - `inputHint`：一句话说该粘什么。
+  - `recognizesSite(_:)`：这是不是这家的网站。服务商按主机名全等来认，中转站按路径 `/admin-next` ��。
+- 由 `ProviderRegistry.siteOwner(for:)` 统一处理，缺 `https://` 时自动补上。设置窗口里解析不出连接、但认得出网站时，状态行显示「这是 X 的网站。请改粘 …」，**不发任何请求**。
+- 「认不出」的文案原来是「请确认它是中转站的用量统计页面」，那是只有一家时的说法。现在改成对照上方支持列表。
+- 5 例测试。
+
+**用户实机发现一处指错路（同日修正）：** 起初 tu-zi Coding 认整个 `tu-zi.com`，于是用户粘 `api.tu-zi.com/console`（new-api 的按量付费站）时，被提示「请改粘 API Key」，照做了也连不上。指错路比说「认不出」更糟。
+
+改成只认 Coding Plan 自己的三个地址：`coding.tu-zi.com`、`store.tu-zi.com`，以及 `api.tu-zi.com/coding…`（用户在 Claude Code 里填的 Base URL）。主机名全等比较，所以 `evil-tu-zi.com` 这类问题也就不存在了。`api.tu-zi.com` 的其他路径如实显示「认不出」。
+
+反向验证：
+- 最初的整域名版本做过两处：去掉点号、不补 `https://`，都会变红。
+- **收窄之后的反向验证没跑**，那次被用户打断了。「不补 `https://`」那一处仍然由 `testATuziPageIsPointedToTheKey` 兜住。
+
+**刻意没做的：**
+
+- **「认得但不支持」的名单**：`api.tu-zi.com/console` 这类不支持的站点显示「认不出」，不另外说明是哪家。等以后真接了，它自然会被认出来。
+- **粘贴时联网探测**（请求 `/api/status` 来认 new-api 自建站）：一粘贴就发请求，这是行为上的改变。只用离线规则。
+- **两家都认同一个网站时让用户选**：现有两家的规则不可能重叠，这个判断测不到，就没留。取第一个认的。以后加了规则会重叠的适配器（比如 new-api 也按路径认）再补。
+
 ## 实施阶段与依赖
 
 | 阶段 | 工作内容 | 完成标志 |

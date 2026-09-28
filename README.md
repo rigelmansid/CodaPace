@@ -53,7 +53,7 @@ to reach the next reset without running dry.
 | Service | What you paste | Quotas | Where the credential lives |
 |---|---|---|---|
 | [claude-relay-service](https://github.com/Wei-Shaw/claude-relay-service) | The usage-stats page URL, `https://your-relay.example.com/admin-next/api-stats?apiId=…` | Total, daily, weekly Opus, rate-limit window | Preferences. The `apiId` is read-only and can't make requests |
-| [tu-zi](https://api.tu-zi.com/) | An API key, `sk-…` | Daily, weekly, monthly | macOS Keychain, because the key can spend money |
+| [tu-zi Coding](https://api.tu-zi.com/) | An API key, `sk-…` | Daily, weekly, monthly | macOS Keychain, because the key can spend money |
 
 It does **not** work with the official Anthropic API, Amazon Bedrock, Google Vertex AI, or gateways
 such as LiteLLM and OpenRouter. Their usage APIs differ, and the official API has no per-key quota
@@ -256,7 +256,7 @@ active account. Saved accounts make switching quick instead.
 
 ```bash
 ./build.sh                      # build CodaPace.app
-swift run CoreTests             # 419 unit tests
+swift run CoreTests             # 424 unit tests
 swift Scripts/make-icon.swift   # regenerate Resources/AppIcon.icns
 ```
 

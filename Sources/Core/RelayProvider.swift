@@ -32,6 +32,14 @@ public struct RelayProvider: UsageProviderAdapter {
 
     public var inputExample: String { "https://your-relay.example.com/admin-next/api-stats?apiId=…" }
 
+    public var inputHint: LangKey { .inputHintStatsPage }
+
+    /// 管理后台的任意页面(`/admin-next/…`),或统计页但没带 apiId。
+    /// 按路径认,和 `detect` 同理不看域名。
+    public func recognizesSite(_ url: URLComponents) -> Bool {
+        url.path.contains("/admin-next")
+    }
+
     /// 这家不报日重置时刻,只能靠观测「今日」那条计数器归零来学 ——
     /// 和 `capabilities` 里没有 `.dailyResetTime` 是同一件事的两种说法。
     public var learnableDailyBucketID: String? { "daily" }

@@ -112,6 +112,7 @@ public enum LangKey: String, CaseIterable {
     case setupWaiting, setupTesting
     case setupSuccessFormat, setupFailureFormat
     case setupUnsupported, setupRecognizedFormat
+    case setupSiteRecognizedFormat, inputHintApiKey, inputHintStatsPage
 
     // 连接报告里的提示
     case findNoLimitedQuota, findIncompleteUsage, findDailyResetInferred
@@ -513,12 +514,26 @@ public enum L10n {
             .zhHans: "缺少密钥,请重新填写并测试连接",
             .zhHant: "缺少金鑰,請重新填寫並測試連線",
             .en: "The API key is missing — enter it again and test the connection"],
+        // 旧文案「请确认它是中转站的用量统计页面」是只有一家时的话 ——
+        // 现在认不出的可能是任何一家,让用户去对上方的支持列表
         .setupUnsupported: [
-            .zhHans: "认不出这个网址对应的服务,请确认它是中转站的用量统计页面",
-            .zhHant: "認不出這個網址對應的服務,請確認它是中轉站的用量統計頁面",
-            .en: "Couldn’t tell which service this URL belongs to — check that it’s a relay usage-stats page"],
+            .zhHans: "认不出这是哪家的服务,请对照上方的支持列表",
+            .zhHant: "認不出這是哪家的服務,請對照上方的支援列表",
+            .en: "Couldn’t tell which service this is — check the list above"],
         .setupRecognizedFormat: [
             .zhHans: "已识别:%@", .zhHant: "已識別:%@", .en: "Recognized: %@"],
+        // 粘的是那家的网站地址而不是凭据:说出是哪家,再说该粘什么
+        .setupSiteRecognizedFormat: [
+            .zhHans: "这是 %@ 的网站。%@", .zhHant: "這是 %@ 的網站。%@",
+            .en: "This is a %@ site. %@"],
+        .inputHintApiKey: [
+            .zhHans: "请改粘贴 API Key(sk-…)",
+            .zhHant: "請改貼上 API Key(sk-…)",
+            .en: "Paste an API key (sk-…) instead."],
+        .inputHintStatsPage: [
+            .zhHans: "请打开 API 统计页,粘贴地址栏里带 apiId 的完整网址",
+            .zhHant: "請打開 API 統計頁,貼上網址列中帶 apiId 的完整網址",
+            .en: "Open the API stats page and paste the full URL with apiId from the address bar."],
 
         // ── 连接报告里的提示 ──────────────────────────────
         .findNoLimitedQuota: [
