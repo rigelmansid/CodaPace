@@ -298,6 +298,7 @@ XCTAssertEqual(points.first?.value, 42)   // 空数组时正常报失败，不�
 ## 交接：上次停在哪（2026-09-26）
 
 - **2026-09-27 已发布 v2.1**（新版本提醒 + 时间环），本地与 origin 同步。v2.0 的 Release 说明已补上「先退出、删旧 app」的升级命令。
+- **2026-09-29 已发布 v2.2**：先粘服务地址、sub2api 与 claude-code-hub 适配器（本机部署实测）、设置窗口精简、面板打开窗口前先收起。
 - **本机当前运行的可能是 `build/` 里的开发构建**，不是 `/Applications` 里的正式版。构建新版前先退出；要换回正式版就退出后 `open /Applications/CodaPace.app`。
 - **发版流程**（本机已装 `gh` 并登录）：改 `Info.plist` 两个版本键 → 跑测试 → 退出开发版、`./build.sh` → `ditto -c -k --keepParent build/CodaPace.app build/CodaPace-arm64.zip`（附件名固定，README 的安装命令靠它）→ `gh release create vX.Y build/CodaPace-arm64.zip --target main --notes-file …`。说明照 v2.0 / v2.1 的中英双语格式，末尾附 SHA-256。发完用 `curl` 请求 `releases/latest` 核对 tag，并下载 zip 核对哈希。
 - **悬而未决、等用户的**：EXT-011 下一步要真实的 new-api / sub2api 账户；应用内一键安装是否做、签名走 CryptoKit 还是 Developer ID（见下文「应用内更新」一节的待决问题）。
