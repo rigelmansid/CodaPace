@@ -4,7 +4,7 @@
 
 配套的两份 backlog 记的是「每条改动为什么长这样」，见文末索引。
 
-最后更新：2026-09-25
+最后更新：2026-09-29
 
 ---
 
@@ -225,7 +225,7 @@ XCTAssertEqual(points.first?.value, 42)   // 空数组时正常报失败，不�
 | 文件 | 内容 | 进度 |
 |---|---|---|
 | `optimization-backlog.zh-CN.md` | 已有代码缺陷 OPT-001…012 | **12/12 全部完成** |
-| `provider-and-chart-backlog.zh-CN.md` | 多供应商与图表扩展 EXT-001…011 | 001/002/003/004/005/008 完成；006/007 只保留 Core，渲染已决定不做；009 四条完成、macOS 13 真机验证无机器可做；010 完成并实机验证；011 只梳理了接入分类，未实现 |
+| `provider-and-chart-backlog.zh-CN.md` | 多供应商与图表扩展 EXT-001…011 | 001/002/003/004/005/008 完成；006/007 只保留 Core，渲染已决定不做；009 四条完成、macOS 13 真机验证无机器可做；010 完成并实机验证；011 范围收敛到 Coding Plan，sub2api / claude-code-hub 已接入，三家厂商等真实账户 |
 
 每条已完成项末尾都有「修复记录」，写明改法、取舍、**以及刻意未做的部分和理由**。动手前先读对应那条 —— 很多看起来「明显该改」的地方，那里已经解释过为什么不改。
 
@@ -261,6 +261,8 @@ XCTAssertEqual(points.first?.value, 42)   // 空数组时正常报失败，不�
 
 ### 现在有两个适配器
 
+（2026-09-29 起是四个：又接了 sub2api 和 claude-code-hub 两个中转站软件，见 EXT-011 条目末尾。下表只比较最初这两个。）
+
 | | 中转站 | tu-zi |
 |---|---|---|
 | 用户输入 | 用量页面网址 | 一把 `sk-` key |
@@ -295,13 +297,34 @@ XCTAssertEqual(points.first?.value, 42)   // 空数组时正常报失败，不�
 
 ---
 
-## 交接：上次停在哪（2026-09-26）
+## 交接：上次停在哪（2026-09-29）
 
-- **2026-09-27 已发布 v2.1**（新版本提醒 + 时间环），本地与 origin 同步。v2.0 的 Release 说明已补上「先退出、删旧 app」的升级命令。
-- **2026-09-29 已发布 v2.2**：先粘服务地址、sub2api 与 claude-code-hub 适配器（本机部署实测）、设置窗口精简、面板打开窗口前先收起。
-- **本机当前运行的可能是 `build/` 里的开发构建**，不是 `/Applications` 里的正式版。构建新版前先退出；要换回正式版就退出后 `open /Applications/CodaPace.app`。
-- **发版流程**（本机已装 `gh` 并登录）：改 `Info.plist` 两个版本键 → 跑测试 → 退出开发版、`./build.sh` → `ditto -c -k --keepParent build/CodaPace.app build/CodaPace-arm64.zip`（附件名固定，README 的安装命令靠它）→ `gh release create vX.Y build/CodaPace-arm64.zip --target main --notes-file …`。说明照 v2.0 / v2.1 的中英双语格式，末尾附 SHA-256。发完用 `curl` 请求 `releases/latest` 核对 tag，并下载 zip 核对哈希。
-- **悬而未决、等用户的**：EXT-011 下一步要真实的 new-api / sub2api 账户；应用内一键安装是否做、签名走 CryptoKit 还是 Developer ID（见下文「应用内更新」一节的待决问题）。
+- **v2.2 已发布**，本地与 origin 同步，工作区干净。面板的新版本提醒已在真实 Release 上验证过（2.1 → 2.2）。
+- **本机当前运行的是 `build/` 里的 2.2 开发构建**，不是 `/Applications` 里的正式版。构建新版前先退出；要换回正式版就退出后 `open /Applications/CodaPace.app`。
+- **发版流程**（本机已装 `gh` 并登录）：改 `Info.plist` 两个版本键 → 跑测试 → 退出开发版、`./build.sh` → `ditto -c -k --keepParent build/CodaPace.app build/CodaPace-arm64.zip`（附件名固定，README 的安装命令靠它）→ `gh release create vX.Y build/CodaPace-arm64.zip --target main --notes-file …`。说明照 v2.0 / v2.1 / v2.2 的中英双语格式，末尾附 SHA-256。发完用 `curl` 请求 `releases/latest` 核对 tag，并下载 zip 核对哈希。验证更新提醒：用 PlistBuddy 只把 `build/` 那份的版本改低、`codesign --force --sign -` 后打开，验完重新 `./build.sh`。
+
+### 这一轮（2026-09-28 / 29）做了什么
+
+详细的取舍都在 `provider-and-chart-backlog.zh-CN.md` 的 EXT-011 末尾，按时间排着几节「实测」和「已完成」。一句话版：
+
+1. **范围收敛到 Coding Plan 类订阅**（用户决定）。接入标准：至少一条带上限、带固定周期的额度，并且用户手里那把低权限 key 查得到。不收登录令牌、系统访问令牌、账号 AK/SK 这类能操作整个账户的凭据。`api.tu-zi.com`（new-api 按量站）和 GAC Code 实测后不接。
+2. **做了一次 deep-research 调研**，覆盖 46 个对象，定了 5 个值得做的：智谱 GLM、Kimi Code、MiniMax、sub2api、claude-code-hub。报告在用户本机 `~/outcome.tar.gz`，结论已抄进 EXT-011。
+3. **输入改成「先粘服务地址」**：认出是哪家、要 key 的，下面才出现 key 框。适配器命名统一为「中转站软件名 / 品牌 + 产品」，tu-zi 改叫 tu-zi Coding（`providerID` 不变）。
+4. **sub2api、claude-code-hub 两个适配器**，都是在本机部署真实实例实测后写的，照文档写会错好几处。claude-code-hub 默认要用 key 登录换会话，会话存钥匙串。
+5. **连接报告的「推算」提示**改成看实际数据，不看能力声明。
+6. **设置窗口只留一个输入框**，各家该粘什么挪进 README 的「支持的服务」一节（按服务分小节）；面板打开设置 / 历史窗口前先收起自己。
+
+### 悬而未决、等用户的
+
+- **三家厂商（智谱、Kimi、MiniMax）要真实账户**，用户目前一家都没有。每家动手前的实测清单在 EXT-011「调研结论」一节。Kimi 还有一条硬约束：官方禁止篡改 User-Agent，查不到就降级，**不得伪装**。
+- **应用内一键安装**是否做、签名走 CryptoKit 还是 Developer ID（见下文「应用内更新」一节的待决问题）。
+- `.dailyResetTime` 等几项能力声明已经没有代码在读，删不删没定。
+
+### 这一轮学到、下次用得上的
+
+- **中转站软件用本机部署实测**：PostgreSQL 用 Maven 上 zonky 的便携版（`embedded-postgres-binaries-darwin-arm64v8`，jar 里是 `postgres-darwin-arm_64.txz`），Redis 从源码 `make`（模块编译失败不影响 `redis-server`），全部放在 `/tmp/codapace-lab/`，只监听 `127.0.0.1`。**把包管理器的缓存也指进实验室目录**（`npm_config_cache`、`BUN_INSTALL_CACHE_DIR`、`NEXT_TELEMETRY_DISABLED`），这次第一个实验室漏了 npm，事后从 `~/.npm` 里逐条删的。清除后检查进程、端口，以及 `~/Library/Preferences/nextjs-nodejs` 这类目录。sub2api 建分组前要求管理员逐字确认一句合规承诺，**替用户确认前必须先问**。
+- **写脚本改中文文件时，锚点或正文偶尔会出现乱码字符（U+FFFD）**：锚点坏了替换会失败，正文坏了会悄悄写进文件。每次改完用 `grep -rn $'\xef\xbf\xbd' Sources Tests docs README*.md` 扫一遍；锚点尽量用纯 ASCII 的片段。
+- **macOS 的 `xargs` 没有 `-a`**，要用 `tr '\n' '\0' < file | xargs -0`。
 
 ## 其余剩余工作
 
