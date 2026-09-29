@@ -313,6 +313,7 @@ XCTAssertEqual(points.first?.value, 42)   // 空数组时正常报失败，不�
 4. **sub2api、claude-code-hub 两个适配器**，都是在本机部署真实实例实测后写的，照文档写会错好几处。claude-code-hub 默认要用 key 登录换会话，会话存钥匙串。
 5. **连接报告的「推算」提示**改成看实际数据，不看能力声明。
 6. **设置窗口只留一个输入框**，各家该粘什么挪进 README 的「支持的服务」一节（按服务分小节）；面板打开设置 / 历史窗口前先收起自己。
+7. **GitHub 仓库的 About 更新了**（用户同意）：描述改成 Coding Plan 定位、写明 Claude Code / Codex 和四个支持的服务；标签删了错字 `menbar`，加了 `menubar`、`claude-code`、`codex`、`quota`。
 
 ### 悬而未决、等用户的
 
@@ -482,5 +483,6 @@ EXT-001 阶段 2 的 v3 → v4 迁移**不丢任何历史**（四个固定列原
 ### 已知的文档过时点
 
 - **测试数散落在 5 个地方**，加用例时必须一起改，否则会拿一个对不上的数去核基线：本文两处（「命令」+ 文末基线表）、`README.md`、`README.zh-CN.md`。当前值 **458**。
+- **GitHub 仓库的 About（描述和标签）不在仓库里**，搜不到，最容易忘。支持的服务或产品定位变了，要一起用 `gh repo edit` 改；它是公开可见的，改之前先给用户看。2026-09-29 的版本列出了 claude-relay-service、sub2api、claude-code-hub、tu-zi Coding 四个服务。
 
 发现新的过时点时记在这里，别让它散落在各文件里。
