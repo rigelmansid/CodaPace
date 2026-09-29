@@ -367,7 +367,6 @@ private struct SecretBearingStub: UsageProviderAdapter {
     var displayName: String { "Stub" }
     var capabilities: ProviderCapabilities { [] }
     var credentialSensitivity: CredentialSensitivity { .secret }
-    var inputExample: String { "" }
     var inputHint: LangKey { .inputHintApiKey }
     func detect(_ input: String) -> Bool { false }
     func parseConnection(_ input: String) -> Connection? { nil }

@@ -37,7 +37,6 @@ public struct Sub2APIProvider: UsageProviderAdapter {
     /// 站点发的 key 就是调模型用的那把,能花钱
     public var credentialSensitivity: CredentialSensitivity { .secret }
 
-    public var inputExample: String { "https://your-relay.example.com  +  sk-…" }
     public var inputHint: LangKey { .inputHintApiKey }
 
     /// 响应里有 `usage.total` 的累计花费、请求数和 token 数。

@@ -50,16 +50,71 @@ to reach the next reset without running dry.
 
 ## Supported services
 
-| Service | What you paste | Quotas | Where the credential lives |
-|---|---|---|---|
-| [claude-relay-service](https://github.com/Wei-Shaw/claude-relay-service) | The usage-stats page URL, `https://your-relay.example.com/admin-next/api-stats?apiId=…` | Total, daily, weekly Opus, rate-limit window | Preferences. The `apiId` is read-only and can't make requests |
-| [tu-zi Coding](https://api.tu-zi.com/) | The service address from your coding tool, such as `https://api.tu-zi.com/coding`, then the API key (`sk-…`) | Daily, weekly, monthly | macOS Keychain, because the key can spend money |
-| Relays built on [claude-code-hub](https://github.com/ding113/claude-code-hub) | The site address from your coding tool, then the API key the site gave you | Whatever the site set, per key and per account: 5-hour / daily / this week / this month / total | macOS Keychain (the key, and the login session it is exchanged for) |
-| Relays built on [sub2api](https://github.com/Wei-Shaw/sub2api) | The site address from your coding tool, then the API key the site gave you | Whatever the site set: 5-hour / 24-hour / 7-day limits, or a subscription's daily / 7-day / 30-day limits | macOS Keychain |
+The Settings window has a single field. Paste your **service address** first: the Base URL you set
+in your coding tool.
 
-It does **not** work with the official Anthropic API, Amazon Bedrock, Google Vertex AI, or gateways
-such as LiteLLM and OpenRouter. Their usage APIs differ, and the official API has no per-key quota
-endpoint at all.
+- **Claude Code**: `ANTHROPIC_BASE_URL`, in your environment or the `env` block of `~/.claude/settings.json`
+- **Codex**: the `base_url` of your provider under `model_providers` in `~/.codex/config.toml`
+- If you use **CC Switch**, it shows the address in its provider list
+
+CodaPace recognizes the service from the address. If that service needs a key, an API key field
+appears below; paste the same key your coding tool uses. Then press **Test connection**.
+
+### claude-relay-service
+
+- **What to paste**: the full usage-stats page URL, `https://your-relay/admin-next/api-stats?apiId=…`.
+  Open the site's API stats page in a browser, look up your key once, and copy the address bar.
+  **No key needed.**
+- **Quotas**: total, daily, weekly Opus, rate-limit window
+- **Note**: the API doesn't say when the daily quota resets. CodaPace learns it from the moment the
+  counter drops to zero and labels it as inferred until then.
+- **Credential**: the `apiId` is read-only (it can read usage but can't make requests) and is kept in preferences.
+
+### tu-zi Coding
+
+- **What to paste**: the address `https://api.tu-zi.com/coding`, then the API key (`sk-…`).
+- **Quotas**: daily, weekly, monthly, with reset times from the server.
+- **Note**: Coding Plan only. The pay-as-you-go site at `api.tu-zi.com` (its `/console`) isn't
+  supported, because it has no periodic quota.
+- **Credential**: the key is kept in the macOS Keychain, because it can spend money.
+
+### Relays built on claude-code-hub or sub2api
+
+Many relays run one of these two open-source projects, each at its own address. **You don't need
+to know which one yours runs**: paste the site address and key, and Test connection tries both and
+keeps the one that works.
+
+- **What to paste**: the site address (a trailing path such as `/v1` or `/api` is fine), then the
+  API key the site gave you.
+- **Credential**: the key is kept in the macOS Keychain.
+
+**[claude-code-hub](https://github.com/ding113/claude-code-hub)**
+
+- **Quotas**: whatever the site set for your key and for your account: 5-hour, daily, this week,
+  this month, total. Only limits that are set are shown, titled by layer, e.g. "Key · This week".
+- **Which ones count down**: this week and this month reset at Monday 00:00 and the 1st at 00:00 in
+  the site's timezone; the key's daily quota does too if it resets at a fixed time. The 5-hour
+  quotas, the account's daily quota and rolling daily quotas show usage only, because the site
+  doesn't say when they reset.
+- **Note**: by default this software won't let a key read quotas directly, so CodaPace logs in
+  with your key in the background and keeps the session in the Keychain for its 7 days. The site
+  operator will see a login record. No browser opens and there's nothing for you to do.
+
+**[sub2api](https://github.com/Wei-Shaw/sub2api)**
+
+- **Quotas**: depending on how the site set up your key:
+  - **Key limits**: 5 hours, 24 hours and 7 days, counted from first use, plus a total.
+  - **Subscription**: today, 7 days, 30 days. "Today" is inferred at midnight in the site's
+    timezone and labelled as such; the site doesn't say when "30 days" started, so it shows usage only.
+- **Note**: keys that only draw from a wallet balance, with no periodic quota, aren't supported.
+  Test connection says so.
+
+### Not supported
+
+The official Anthropic API, Amazon Bedrock, Google Vertex AI, and gateways such as LiteLLM and
+OpenRouter. Their usage APIs differ, and the official API has no per-key quota endpoint at all.
+Pay-as-you-go services with only a balance and no reset period are out of scope too: without a
+period there's no "will it last until the reset".
 
 Each service lives in a single adapter file. Everything else, including pace math, reset
 inference, history, charts and alerts, is shared.
@@ -158,8 +213,8 @@ it opens normally.
 
 ### Set up
 
-The Settings window opens on first launch. Paste what your service's row asks for (see
-[Supported services](#supported-services)) and press **Test connection**. It makes a real request
+The Settings window opens on first launch. Paste your service address, then the key if it asks
+for one (see [Supported services](#supported-services)), and press **Test connection**. It makes a real request
 without saving anything, so a wrong URL or key is reported right away. Then **Save**. Keep
 **Also save to the list** ticked to add the account to your saved accounts.
 

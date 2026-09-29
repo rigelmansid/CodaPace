@@ -78,7 +78,6 @@ public struct ClaudeCodeHubProvider: UsageProviderAdapter {
     public var providerID: String { Self.id }
     public var displayName: String { "claude-code-hub" }
     public var credentialSensitivity: CredentialSensitivity { .secret }
-    public var inputExample: String { "https://your-relay.example.com  +  sk-…" }
     public var inputHint: LangKey { .inputHintApiKey }
 
     /// 响应只有金额口径的上限和已用,没有累计 token / 请求数,也没有历史接口

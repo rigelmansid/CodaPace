@@ -160,34 +160,26 @@ struct SettingsView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
-            VStack(alignment: .leading, spacing: 5) {
-                Text(l10n.t(.setupTitle))
-                    .font(.system(size: 14, weight: .semibold))
-                // 还认不出是哪家时,不说该填什么 —— 直接把支持列表摆出来,
-                // 让用户按自己那家的名字去对。认出来之后再给针对性的指引。
-                if resolved == nil && keyOwner == nil {
-                    Text(l10n.t(.setupPickYourProvider))
-                        .font(.system(size: 11))
-                        .foregroundStyle(.secondary)
-                    supportedProviders
-                } else {
-                    Text(l10n.t(carriesSecret ? .setupDescKey : .setupDesc1))
-                        .font(.system(size: 11))
-                        .foregroundStyle(.secondary)
-                }
+            // 只有标题和一个输入框(用户 2026-09-29):从前这里摆着一整份支持列表、
+            // 一句「在下面找到你那家」和安全说明,没粘任何东西时就让人不知所措。
+            // 各家该粘什么挪进 README,左下角的链接直达;安全说明认出是哪家之后再出现
+            Text(l10n.t(.setupTitle))
+                .font(.system(size: 14, weight: .semibold))
 
-                // 安全说明**跟着凭据性质走**,不是一句写死的话。
-                // 中转站的 apiId 确实动不了钱,而一把 sk- key 能 ——
-                // 对后者照搬前者那句,就是做了一个假的安全承诺。
+            inputField
+
+            statusLine
+
+            // 安全说明**跟着凭据性质走**,不是一句写死的话。
+            // 中转站的 apiId 确实动不了钱,而一把 sk- key 能 ——
+            // 对后者照搬前者那句,就是做了一个假的安全承诺。
+            // 认出是哪家之前不说:那时还不知道凭据是哪一种
+            if resolved != nil || keyOwner != nil {
                 Text(l10n.t(carriesSecret ? .setupSafetySecret : .setupSafetyIdentifier))
                     .font(.system(size: 11))
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
             }
-
-            inputField
-
-            statusLine
 
             if !service.archive.entries.isEmpty {
                 archiveList
@@ -196,9 +188,9 @@ struct SettingsView: View {
             Spacer(minLength: 0)
 
             HStack {
-                // 直接落到 README 的支持列表那一节,不是仓库首页
-                Link(l10n.t(.setupSupportedLink),
-                     destination: URL(string: "https://github.com/rigelmansid/CodaPace#supported-services")!)
+                // 直接落到 README 的「支持的服务」那一节,不是仓库首页;
+                // 界面是中文就开中文 README —— 各家该粘什么都写在那里
+                Link(l10n.t(.setupSupportedLink), destination: supportedServicesURL)
                     .font(.system(size: 10))
 
                 Spacer()
@@ -261,33 +253,15 @@ struct SettingsView: View {
         }
     }
 
-    // MARK: 支持列表
+    // MARK: 说明文档
 
-    /// 每家一行:**名字 + 它要什么形状的东西**。
-    ///
-    /// 这份列表从 `ProviderRegistry.all` 生成,用的是适配器早就有的 `displayName`
-    /// 和 `inputExample` —— 通用层不认识任何一家,第三家接进来自动出现在这里
-    /// (不变量 6)。
-    ///
-    /// 它替掉的是原先那句「中转站粘网址,订阅制供应商粘 Key」:那句要求用户
-    /// **先给自己归类**,而「中转站」「订阅制」是我们的词。用户知道的是自己用的
-    /// 那家叫什么,所以按名字对最省事。
-    private var supportedProviders: some View {
-        VStack(alignment: .leading, spacing: 3) {
-            ForEach(ProviderRegistry.all, id: \.providerID) { adapter in
-                HStack(alignment: .firstTextBaseline, spacing: 6) {
-                    Text(adapter.displayName)
-                        .font(.system(size: 11, weight: .medium))
-                        .frame(width: 130, alignment: .leading)
-                    Text(adapter.inputExample)
-                        .font(.system(size: 10, design: .monospaced))
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                        .truncationMode(.middle)
-                }
-            }
+    private var supportedServicesURL: URL {
+        switch l10n.language {
+        case .zhHans, .zhHant:
+            return URL(string: "https://github.com/rigelmansid/CodaPace/blob/main/README.zh-CN.md#支持的服务")!
+        default:
+            return URL(string: "https://github.com/rigelmansid/CodaPace#supported-services")!
         }
-        .padding(.top, 1)
     }
 
     // MARK: 输入框

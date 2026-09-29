@@ -109,7 +109,7 @@ public enum LangKey: String, CaseIterable {
     case historyTokensTotalFormat, historyTokensByDay
 
     // 配置窗口
-    case setupWindowTitle, setupTitle, setupDesc1
+    case setupWindowTitle, setupTitle
     case setupTest, setupSave, setupSupportedLink
     case setupWaiting, setupTesting
     case setupSuccessFormat, setupFailureFormat
@@ -130,8 +130,7 @@ public enum LangKey: String, CaseIterable {
     case errInvalidURLFormat, errHTTPFormat, errNoData, errUnparsable, errApiFailed
     case errMissingCredential
     case setupRevealSecret, setupHideSecret, setupMustTestFirst
-    case setupDescKey, setupSafetyIdentifier, setupSafetySecret
-    case setupPickYourProvider
+    case setupSafetyIdentifier, setupSafetySecret
     case errInvalidFieldFormat
     case errHistoryStore
 }
@@ -434,28 +433,9 @@ public enum L10n {
         .setupWindowTitle: [
             .zhHans: "设置 — CodaPace", .zhHant: "設定 — CodaPace",
             .en: "Settings — CodaPace"],
+        // 先粘服务地址(EXT-011):标题和输入框的提示说的是同一件事
         .setupTitle: [
-            .zhHans: "粘贴用量统计页面网址,或 API Key",
-            .zhHant: "貼上用量統計頁面網址,或 API Key",
-            .en: "Paste a usage-stats URL, or an API key"],
-        // 还认不出是哪家时说的话。**关键在于不要求用户先给自己归类** ——
-        // 「中转站」「订阅制供应商」是我们的词,不是用户的词;他知道的是
-        // 「我用的是 tu-zi」。所以这里只说「在下面找到你那家」,
-        // 具体要什么由那份列表逐行给出。
-        .setupPickYourProvider: [
-            .zhHans: "在下面找到你用的那家,粘贴它那一行要的东西:",
-            .zhHant: "在下面找到你用的那家,貼上它那一行要的東西:",
-            .en: "Find your provider below and paste what its line asks for:"],
-        // 认出来之后才说这句,所以不必再提「中转站」那个分类词 ——
-        // 用户此刻已经在状态行里看见那家的名字了
-        .setupDesc1: [
-            .zhHans: "在浏览器里打开它的用量统计页面,把地址栏的完整网址复制过来。",
-            .zhHant: "在瀏覽器裡開啟它的用量統計頁面,把網址列的完整網址複製過來。",
-            .en: "Open its usage-stats page in a browser and copy the full URL from the address bar."],
-        .setupDescKey: [
-            .zhHans: "粘贴这家供应商给你的 API Key。",
-            .zhHant: "貼上這家供應商給你的 API Key。",
-            .en: "Paste the API key this provider gave you."],
+            .zhHans: "粘贴服务地址", .zhHant: "貼上服務位址", .en: "Paste your service address"],
 
         // ── 安全说明:**必须跟着凭据性质走** ──────────────────
         //
@@ -536,9 +516,9 @@ public enum L10n {
         // 旧文案「请确认它是中转站的用量统计页面」是只有一家时的话 ——
         // 现在认不出的可能是任何一家,让用户去对上方的支持列表
         .setupUnsupported: [
-            .zhHans: "认不出这是哪家的服务,请对照上方的支持列表",
-            .zhHant: "認不出這是哪家的服務,請對照上方的支援列表",
-            .en: "Couldn’t tell which service this is — check the list above"],
+            .zhHans: "认不出这是哪家的服务,各家该粘什么见左下角的链接",
+            .zhHant: "認不出這是哪家的服務,各家該貼什麼見左下角的連結",
+            .en: "Couldn’t tell which service this is — the link below lists what each one needs"],
         .setupRecognizedFormat: [
             .zhHans: "已识别:%@", .zhHant: "已識別:%@", .en: "Recognized: %@"],
         // 粘的是那家的网站地址而不是凭据:说出是哪家,再说该粘什么

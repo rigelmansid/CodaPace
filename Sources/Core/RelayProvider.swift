@@ -30,7 +30,6 @@ public struct RelayProvider: UsageProviderAdapter {
     /// 所以明文存储可接受。这是**这家的性质**,不是通用前提。
     public var credentialSensitivity: CredentialSensitivity { .readOnlyIdentifier }
 
-    public var inputExample: String { "https://your-relay.example.com/admin-next/api-stats?apiId=…" }
 
     public var inputHint: LangKey { .inputHintStatsPage }
 

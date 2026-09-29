@@ -46,11 +46,6 @@ public struct TuziProvider: UsageProviderAdapter {
     /// 于是 `Config.apply` 那道守卫会把它挡在明文存储之外,逼着走钥匙串。
     public var credentialSensitivity: CredentialSensitivity { .secret }
 
-    /// 只给**形状**,不带家名 —— 设置界面的支持列表会把 displayName 排在它前面。
-    /// 先写地址:那是用户在编程工具里填的 Base URL,「先粘服务地址」的第一步(EXT-011)。
-    /// 单独粘一把 key 仍然认 —— 眼下只有这一家的 key 是 `sk-`,不会撞车。
-    public var inputExample: String { "https://api.tu-zi.com/coding  +  sk-…" }
-
     public var inputHint: LangKey { .inputHintApiKey }
 
     /// 只认 Coding Plan 自己的地址,**不认整个 `tu-zi.com`**。

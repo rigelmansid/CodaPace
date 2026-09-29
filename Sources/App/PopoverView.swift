@@ -164,6 +164,11 @@ struct PopoverView: View {
     @State private var showOtherGauges = false
     @State private var contentHeight: CGFloat = 0
 
+    /// 面板自己所在的那个窗口。打开设置、历史窗口前先把它关掉 ——
+    /// 面板在状态栏层级,不关的话会一直盖在新窗口上面(用户 2026-09-29 实机指出)。
+    /// 只关**自己**,不关「当前最前面的窗口」:从设置窗口里再开历史,不该把设置关掉
+    @State private var panel: NSWindow?
+
     /// 滚动区的高度上限。
     /// visibleFrame 已排除菜单栏和程序坞;再减去固定的头部(约 52)、底部(约 34)、
     /// 两条分隔线,并给窗口圆角与投影留些余量。有更新提醒时底部再多一行(约 30)。
@@ -207,6 +212,7 @@ struct PopoverView: View {
             footer
         }
         .frame(width: Metrics.width)
+        .background(WindowReader(window: $panel))
         // 面板是点开才创建的,每次打开都重读一次历史;
         // 之后每次刷新拿到新快照也跟着更新
         .onAppear { reloadHistory() }
@@ -413,7 +419,7 @@ struct PopoverView: View {
             Text(l10n.t(.stateNotConfiguredDetail))
                 .font(.system(size: 11))
                 .foregroundStyle(.secondary)
-            Button(l10n.t(.stateOpenSetup)) { SettingsWindow.shared.show() }
+            Button(l10n.t(.stateOpenSetup)) { present(SettingsWindow.shared.show) }
                 .controlSize(.small)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -432,7 +438,7 @@ struct PopoverView: View {
                 Text(detail).font(.system(size: 11)).foregroundStyle(.secondary)
             }
             if offersSetup {
-                Button(l10n.t(.stateOpenSetup)) { SettingsWindow.shared.show() }
+                Button(l10n.t(.stateOpenSetup)) { present(SettingsWindow.shared.show) }
                     .controlSize(.small)
                     .padding(.top, 4)
             }
@@ -476,7 +482,7 @@ struct PopoverView: View {
     private func miniChart<Content: View>(title: String, detail: String,
                                           @ViewBuilder content: () -> Content) -> some View {
         Button {
-            HistoryWindow.shared.show()
+            present(HistoryWindow.shared.show)
         } label: {
             VStack(alignment: .leading, spacing: 6) {
                 HStack(alignment: .firstTextBaseline, spacing: 6) {
@@ -579,7 +585,7 @@ struct PopoverView: View {
                     if let url = Config.consoleURL {
                         actionRow(l10n.t(.rowOpenConsole)) { NSWorkspace.shared.open(url) }
                     }
-                    actionRow(l10n.t(.rowConfigureAccount)) { SettingsWindow.shared.show() }
+                    actionRow(l10n.t(.rowConfigureAccount)) { present(SettingsWindow.shared.show) }
 
                     groupHeader(l10n.t(.groupLanguage))
 
@@ -679,5 +685,33 @@ struct PopoverView: View {
         }
         .padding(.horizontal, Metrics.hPad)
         .padding(.vertical, 9)
+    }
+}
+
+// MARK: - 打开独立窗口
+
+extension PopoverView {
+    /// 先收起面板,再开新窗口
+    fileprivate func present(_ show: () -> Void) {
+        panel?.close()
+        show()
+    }
+}
+
+/// 读出 SwiftUI 视图所在的 NSWindow。MenuBarExtra 没有「收起面板」的 API,只能拿到窗口自己关
+private struct WindowReader: NSViewRepresentable {
+    @Binding var window: NSWindow?
+
+    func makeNSView(context: Context) -> NSView {
+        let view = NSView()
+        // 视图刚建好时还没挂进窗口,下一轮再读
+        DispatchQueue.main.async { window = view.window }
+        return view
+    }
+
+    func updateNSView(_ nsView: NSView, context: Context) {
+        if window !== nsView.window {
+            DispatchQueue.main.async { window = nsView.window }
+        }
     }
 }

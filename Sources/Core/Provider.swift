@@ -133,10 +133,6 @@ public protocol UsageProviderAdapter {
     /// 连接里那个标识的性质。决定它能不能明文存 —— 见 CredentialSensitivity。
     var credentialSensitivity: CredentialSensitivity { get }
 
-    /// 一个能让用户照着填的网址示例。设置界面拿它当提示,
-    /// 所以提示文案不该在通用层硬编码某一家的格式。
-    var inputExample: String { get }
-
     /// 一句话告诉用户**该粘什么**。用户粘错了东西(比如那家的网站地址)时显示。
     var inputHint: LangKey { get }
 
@@ -192,7 +188,7 @@ public protocol UsageProviderAdapter {
     /// 从用户粘贴的那段文字解析出一个连接。解析不出来就是 nil。
     ///
     /// 「那段文字」是什么取决于适配器:中转站要的是用量页面网址,tu-zi 要的是一把 key。
-    /// 所以提示文案由 `inputExample` 给,通用层不该硬编码某一家的格式。
+    /// 各家该粘什么写在 README 里,通用层不硬编码某一家的格式。
     func parseConnection(_ input: String) -> Connection?
 
     /// 管理后台地址。由适配器构造 —— 它和统计接口不一定同源同路径,

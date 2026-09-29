@@ -49,15 +49,59 @@
 
 ## 支持的服务
 
-| 服务 | 粘贴什么 | 额度 | 凭据存在哪 |
-|---|---|---|---|
-| [claude-relay-service](https://github.com/Wei-Shaw/claude-relay-service) | 用量统计页面的网址，`https://your-relay.example.com/admin-next/api-stats?apiId=…` | 总额度、今日、本周 Opus、限流窗口 | 偏好设置。`apiId` 是只读标识，发不了请求 |
-| [tu-zi Coding](https://api.tu-zi.com/) | 编程工具里填的服务地址，比如 `https://api.tu-zi.com/coding`，再粘 API Key（`sk-…`） | 今日、本周、本月 | macOS 钥匙串，因为这把 key 能花钱 |
-| [claude-code-hub](https://github.com/ding113/claude-code-hub) 搭建的中转站 | 编程工具里填的站点地址，再粘站点发的 API Key | 站长配置的 key 级和账户级限额：5 小时 / 日 / 本周 / 本月 / 总额 | macOS 钥匙串（key，以及用它换来的登录会话） |
-| [sub2api](https://github.com/Wei-Shaw/sub2api) 搭建的中转站 | 编程工具里填的站点地址，再粘站点发的 API Key | 站长配置的限额：5 小时 / 24 小时 / 7 天，或订阅的日 / 7 天 / 30 天 | macOS 钥匙串 |
+设置窗口只有一个输入框。先粘**服务地址**，也就是你在编程工具里填的那个 Base URL：
 
-**不支持** Anthropic 官方 API、Amazon Bedrock、Google Vertex AI，以及 LiteLLM、OpenRouter 这类网关。
+- **Claude Code**：`ANTHROPIC_BASE_URL`，在环境变量或 `~/.claude/settings.json` 的 `env` 里
+- **Codex**：`~/.codex/config.toml` 里那个 `model_providers` 的 `base_url`
+- 用 **CC Switch** 管理的，在它的供应商列表里能看到
+
+CodaPace 按地址认出是哪家。要 key 的，下面会再出现一个 API Key 框，粘你在编程工具里用的同一把 key。
+然后点「**测试连接**」。
+
+### claude-relay-service
+
+- **粘什么**：用量统计页面的完整网址，`https://你的站点/admin-next/api-stats?apiId=…`。
+  在浏览器里打开站点的「API 统计」页，查询一次，再从地址栏复制。**不需要 key。**
+- **额度**：总额度、今日、本周 Opus、限流窗口
+- **注意**：接口不告诉日额度几点重置，CodaPace 会从计数归零的那一刻学出来，在那之前标「推算」。
+- **凭据**：`apiId` 是只读标识，只能看用量、发不了请求，存在偏好设置里。
+
+### tu-zi Coding
+
+- **粘什么**：服务地址 `https://api.tu-zi.com/coding`，再粘 API Key（`sk-…`）。
+- **额度**：今日、本周、本月，重置时刻由服务端给出。
+- **注意**：只支持 Coding Plan。`api.tu-zi.com` 的按量付费站（控制台 `/console`）不支持，它没有周期额度。
+- **凭据**：key 存在 macOS 钥匙串，因为它能花钱。
+
+### 用 claude-code-hub 或 sub2api 搭建的中转站
+
+很多中转站是用这两个开源软件搭的，网址各不相同。**不用先弄清楚你的站点用的是哪一个**：
+粘站点地址和 key，测试连接时 CodaPace 会依次试这两种，用跑通的那一种。
+
+- **粘什么**：站点地址（后面带 `/v1`、`/api` 之类的路径也没关系），再粘站点发给你的 API Key。
+- **凭据**：key 存在 macOS 钥匙串。
+
+**[claude-code-hub](https://github.com/ding113/claude-code-hub)**
+
+- **额度**：站长给你的 key 和你的账户各自设的限额：5 小时、日、本周、本月、总额。只显示设了上限的，
+  标题写明是哪一层，比如「Key · 本周」「账户 · 本月」。
+- **哪些有倒计时**：本周、本月按站点所在时区的周一 0 点、每月 1 号 0 点重置；key 的日额度如果是固定时刻重置，也有。
+  5 小时、账户的日额度、按滚动方式计的日额度，站点不告诉什么时候重置，只显示用量。
+- **注意**：这个软件默认不让 key 直接查额度，CodaPace 会用你的 key 在后台登录一次，把登录会话存进钥匙串，
+  7 天内反复使用。站长的后台会看到一条登录记录。不会打开浏览器，你也不用做什么。
+
+**[sub2api](https://github.com/Wei-Shaw/sub2api)**
+
+- **额度**：看站长怎么给你的 key 配的：
+  - **key 自带限额**：5 小时、24 小时、7 天，从第一次使用起算；外加一个总额。
+  - **订阅套餐**：今日、7 天、30 天。「今日」按站点时区的 0 点推算，标「推算」；「30 天」站点不告诉起点，只显示用量。
+- **注意**：只有钱包余额、没有周期额度的 key 不支持，测试连接时会明说。
+
+### 不支持的
+
+Anthropic 官方 API、Amazon Bedrock、Google Vertex AI，以及 LiteLLM、OpenRouter 这类网关。
 它们的用量接口各不相同，官方 API 更是根本没有按 key 查额度的接口。
+只有余额、没有重置周期的按量付费服务也不在范围内：没有周期，就算不出「撑不撑得到重置」。
 
 每个服务的对接都只在一个适配器文件里。pace 计算、重置推算、历史、图表、提醒这些全部共用。
 
@@ -146,7 +190,7 @@ open build/CodaPace.app
 
 ### 首次设置
 
-首次启动会打开设置窗口。按你那家服务那一行的提示粘贴（见[支持的服务](#支持的服务)），点「**测试连接**」。
+首次启动会打开设置窗口。粘贴服务地址，要 key 的再粘 key（见[支持的服务](#支持的服务)），点「**测试连接**」。
 它会真发一次请求、但什么都不保存，填错的网址或 key 当场就会报出来。然后点「**保存**」。
 勾着「**同时存档**」就会把这个账户加进已存档列表。
 
