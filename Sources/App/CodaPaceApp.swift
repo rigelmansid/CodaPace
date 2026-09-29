@@ -12,6 +12,8 @@ import AppKit
 final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        // 必须在第一次刷新之前:否则那次会用内存实现,登录一次后令牌随进程丢掉
+        SessionTokens.store = KeychainSessionTokenStore()
         UsageService.shared.start()
         UpdateChecker.shared.start()
 

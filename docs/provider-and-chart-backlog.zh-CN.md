@@ -955,6 +955,47 @@ ChartPalette
 - **没做**：`.dailyResetTime` 这项能力声明因此没有任何代码读取了，只剩各适配器里的声明和几条测试。其他几项能力声明也大多是这样，删不删是另一个决定，没有顺手做。
 - **claude-code-hub**：之后照同样的方式本机部署实测。届时认不出的网址要依次试两种软件。
 
+### 已完成：claude-code-hub 适配器（2026-09-28，本机部署实测）
+
+**实测环境**：`/tmp/codapace-lab/` 里的 v0.9.6 源码，用 bun 1.3.10 装依赖、`next build` 构建（约 2 分钟，最大进程内存峰值约 2.1 GB），跑 standalone 产物，配便携版 PostgreSQL 和 Redis。全部只监听 `127.0.0.1`。bun 缓存和 Next.js 遥测都关在实验室目录里，`~/.bun` 始终没有生成。实验室磁盘占用约 3 GB。
+
+**和调研结论不一样的地方**（照文档写一定会错）：
+- **默认配置下 API Key 查不了额度。** 会话令牌模式默认 `opaque`，`/api/v1/me/quota` 只认登录会话。调研依据的官方文档说「直接用 `X-Api-Key` 调用」，在默认配置下不成立。解法：拿 key 调 `POST /api/auth/login`，从 `Set-Cookie: auth-token=sid_…` 里取出会话令牌（7 天有效），放进 Bearer 头去查。这和它网页端「用 API Key 登录」是同一条路，权限不超过那把 key。
+- **响应里一个时间戳都没有**，读不出服务端时区。时区另查 `/api/v1/system/timezone`，带会话能拿到 `{"timeZone":"Asia/Shanghai"}`，是服务端明说的。
+- **`dailyResetMode` / `dailyResetTime` 是 key 的**，不是账户的：默认 key 显示 `fixed 00:00`，而用户那层设的是 04:00。账户层的日重置规则，以及两层的 5 小时重置方式，响应里都没有。
+
+**认证流程**（用户 2026-09-28 同意，并选定会话存钥匙串）：
+- 依次试：存着的会话 → key 本身（兼容 legacy / dual 模式的站点）→ 用 key 登录换新会话。只有 401 才往下走一步。
+- **会话必须复用**：每登录一次，站点就多一条登录记录、Redis 里多一个会话。
+- 会话存在 `SessionTokens.store`（名字里刻意不带供应商，App 不必认识是哪家要会话，不变量 6），App 启动时换成钥匙串实现（`KeychainSessionTokenStore`，键是 `session.` 加完整身份），重启 app 也能接着用。
+- 删除存档账户时，会话连同 key 一起删（`Config.removeCredential`）。
+- 登录请求关掉了 cookie 处理，否则 URLSession 会把令牌存进 app 的 cookie 文件，成为一份没人管的、能用 7 天的凭据。
+- 这个过程用户完全看不到，不会打开浏览器。
+
+**映射**：
+- key 级、账户级各有 5 小时 / 日 / 周 / 月 / 总额，**只显示设了上限的**。标题带层级前缀，用 `BucketTitle.scoped`，显示成「Key · 本周」「账户 · 本月」。
+- 周、月：服务端时区的周一 0 点、每月 1 号 0 点（源码 `time-utils.ts` 确认）。来源标成 `configured`，给 pace。
+- key 的日额度：固定时刻的，用服务端给的时刻和时区，来源 `server`；滚动的，标题写「24 小时」，不给周期。
+- 账户的日额度、两层的 5 小时、总额：只显示用量。
+- **查不到时区就哪条都不给周期**，不拿本机时区顶上。
+- 身份用 key 的哈希，和 sub2api 共用 `AccountIdentity.hashedKeyID`；站点根也共用 `ProviderRegistry.siteRoot`。
+- 没有累计 token 和请求数，`totalCost` 等都传 nil。
+
+**陌生网址的尝试顺序**：先 claude-code-hub，再 sub2api（`ProviderRegistry.guesses`）。设置窗口依次测试，**保存的是真正跑通的那个连接**（`verifiedConnection`）；都失败时，把每一种的原因都列出来。
+- 实测发现：先试 sub2api 的话，它的 `GET /v1/usage` 在 claude-code-hub 站点上会被**当成一次模型转发请求**（返回「No available providers」并开了一个会话），真实站点上等于借用户的 key 往上游多发一个请求。所以 claude-code-hub 排在前。
+- **剩余情况**：key 本身无效时，claude-code-hub 失败后仍会试 sub2api，那一个请求会进它的转发路径。只发生在测试连接、并且 key 无效时，上游也会直接拒绝，没有再处理。
+
+**验证**：
+- 14 例测试。另加 1 例锁定尝试顺序。
+- 反向验证 7 处，每处都会变红：不复用会话、登录后不存会话、让 URLSession 存 cookie、查不到时区就用本机的、账户日额度套用 key 的规则、滚动当成固定、只认 problem+json 的错误。
+- 一次性程序对**真实服务**用三把 key（只有账户级限额 / key 固定日重置 04:00 / key 滚动）走完整的「依次尝试 → verify → 第二次 fetch」。三把都由 claude-code-hub 验证通过，第二次刷新复用了会话，周、月、日的边界都和预期一致。
+
+**刻意没做的**：
+- **子路径部署**：同 sub2api，截掉前缀。
+- **5 小时和账户日额度的重置规则**：响应里没有，不猜。
+- **累计 token 和请求数**：接口不给。
+- **钥匙串授权框**：会话令牌是新条目，每次重新构建后读它会多弹一次（ad-hoc 签名的已知局限，见 project-notes「钥匙串可用」）。
+
 ## 实施阶段与依赖
 
 | 阶段 | 工作内容 | 完成标志 |

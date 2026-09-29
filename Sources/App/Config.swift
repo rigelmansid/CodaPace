@@ -224,6 +224,8 @@ enum Config {
     static func removeCredential(for account: AccountIdentity) throws {
         guard ProviderRegistry.adapter(for: account).credentialSensitivity == .secret else { return }
         try KeychainStore.remove(credentialKey(account))
+        // 有的中转站软件要用 key 换一个登录会话,那个令牌同样能代表这个账户,一起删
+        try KeychainStore.remove(sessionKey(account))
     }
 
     /// 当前这个账户要用的连接(身份 + 密钥)。
@@ -251,6 +253,11 @@ enum Config {
         "credential.\(account.fullIdentityKey)"
     }
 
+    /// 会话令牌那条的键。和密钥分开存:令牌过期了会被覆盖,密钥不动
+    fileprivate static func sessionKey(_ account: AccountIdentity) -> String {
+        "session.\(account.fullIdentityKey)"
+    }
+
     static var isConfigured: Bool { account.isConfigured }
 
     /// 网页控制台地址。路径由**适配器**构造 —— 不同供应商的后台地址和统计接口
@@ -268,4 +275,25 @@ enum Config {
                              dailyResetHourIsObserved: learned != nil)
     }
 
+}
+
+// MARK: - 会话令牌
+
+/// 把用 key 换来的登录会话令牌存进钥匙串,重启 app 也能接着用,
+/// 7 天内只登录一次 —— 每登录一次,站点就多一条登录记录(用户 2026-09-28 选定)。
+///
+/// 和那把 key 同等敏感:能以这个账户的身份访问站点,所以同样只放钥匙串。
+final class KeychainSessionTokenStore: SessionTokenStore {
+
+    func token(for account: AccountIdentity) -> String? {
+        try? KeychainStore.get(Config.sessionKey(account))
+    }
+
+    func setToken(_ token: String?, for account: AccountIdentity) {
+        if let token {
+            try? KeychainStore.set(token, for: Config.sessionKey(account))
+        } else {
+            try? KeychainStore.remove(Config.sessionKey(account))
+        }
+    }
 }

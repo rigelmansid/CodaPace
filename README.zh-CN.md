@@ -53,6 +53,7 @@
 |---|---|---|---|
 | [claude-relay-service](https://github.com/Wei-Shaw/claude-relay-service) | 用量统计页面的网址，`https://your-relay.example.com/admin-next/api-stats?apiId=…` | 总额度、今日、本周 Opus、限流窗口 | 偏好设置。`apiId` 是只读标识，发不了请求 |
 | [tu-zi Coding](https://api.tu-zi.com/) | 编程工具里填的服务地址，比如 `https://api.tu-zi.com/coding`，再粘 API Key（`sk-…`） | 今日、本周、本月 | macOS 钥匙串，因为这把 key 能花钱 |
+| [claude-code-hub](https://github.com/ding113/claude-code-hub) 搭建的中转站 | 编程工具里填的站点地址，再粘站点发的 API Key | 站长配置的 key 级和账户级限额：5 小时 / 日 / 本周 / 本月 / 总额 | macOS 钥匙串（key，以及用它换来的登录会话） |
 | [sub2api](https://github.com/Wei-Shaw/sub2api) 搭建的中转站 | 编程工具里填的站点地址，再粘站点发的 API Key | 站长配置的限额：5 小时 / 24 小时 / 7 天，或订阅的日 / 7 天 / 30 天 | macOS 钥匙串 |
 
 **不支持** Anthropic 官方 API、Amazon Bedrock、Google Vertex AI，以及 LiteLLM、OpenRouter 这类网关。
@@ -233,7 +234,7 @@ claude-relay-service 不公布每天几点重置。CodaPace 先假定是本地�
 
 ```bash
 ./build.sh                      # 构建 CodaPace.app
-swift run CoreTests             # 443 个单元测试
+swift run CoreTests             # 458 个单元测试
 swift Scripts/make-icon.swift   # 重新生成 Resources/AppIcon.icns
 ```
 

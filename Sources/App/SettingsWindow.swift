@@ -65,6 +65,10 @@ struct SettingsView: View {
     @State private var keyInput = ""
     @State private var result: TestResult = .idle
 
+    /// 测试**实际跑通**的那个连接。陌生网址会依次试几种中转站软件,跑通的未必是
+    /// `resolved` 里排第一的那家 —— 保存的必须是验过的这一个(EXT-011)
+    @State private var verifiedConnection: Connection?
+
     /// 密钥默认遮起来。**刻意给一个「显示」开关** —— 粘贴错一个字符
     /// 却看不见,只会对着一句「连接失败」反复试。
     @State private var revealSecret = false
@@ -128,7 +132,12 @@ struct SettingsView: View {
     /// 把历史和偏好劈成两半,所以宁可多让用户点一下「测试连接」。
     private var saveable: Connection? {
         guard let resolved else { return nil }
-        return ProviderRegistry.resolvedForSaving(resolved.connection, report: report)
+        return ProviderRegistry.resolvedForSaving(verifiedConnection ?? resolved.connection, report: report)
+    }
+
+    /// 陌生网址会被依次试的那几种中转站软件,给状态行用:「将按 A / B 测试」
+    private var guessNames: String {
+        ProviderRegistry.all.filter(\.siteMatchIsGuess).map(\.displayName).joined(separator: " / ")
     }
 
     /// 解析得出来、但还差一次测试
@@ -304,6 +313,7 @@ struct SettingsView: View {
                     // 输入一变,上一次的测试结果就不再说明这段文字了。
                     // 对 tu-zi 这还顺带把保存按钮重新锁上 —— 正是要的行为。
                     result = .idle
+                    verifiedConnection = nil
                 }
 
                 if inputIsSecret { revealToggle }
@@ -321,7 +331,7 @@ struct SettingsView: View {
                     }
                     .textFieldStyle(.roundedBorder)
                     .font(.system(size: 11, design: .monospaced))
-                    .onChange(of: keyInput) { _ in result = .idle }
+                    .onChange(of: keyInput) { _ in result = .idle; verifiedConnection = nil }
 
                     revealToggle
                 }
@@ -355,8 +365,9 @@ struct SettingsView: View {
             } else if let resolved {
                 VStack(alignment: .leading, spacing: 3) {
                     // 只说「认出是哪家」,不说「能用」—— 那要等真请求跑通
-                    hint(l10n.f(resolved.adapter.siteMatchIsGuess ? .setupWillTestAsFormat : .setupRecognizedFormat,
-                                resolved.adapter.displayName),
+                    hint(resolved.adapter.siteMatchIsGuess
+                            ? l10n.f(.setupWillTestAsFormat, guessNames)
+                            : l10n.f(.setupRecognizedFormat, resolved.adapter.displayName),
                          color: .secondary)
 
                     // 保存按钮灰着总得有个理由。这家的账户标识在响应里,
@@ -370,7 +381,7 @@ struct SettingsView: View {
                 // 地址认出来了,还差 key。key 填了却拼不出连接,多半是粘错了东西
                 if keyInput.isEmpty {
                     hint(l10n.f(keyOwner.siteMatchIsGuess ? .setupSiteGuessFormat : .setupSiteNeedsKeyFormat,
-                                keyOwner.displayName), color: .secondary)
+                                keyOwner.siteMatchIsGuess ? guessNames : keyOwner.displayName), color: .secondary)
                 } else {
                     hint(l10n.f(.setupKeyUnrecognizedFormat, keyOwner.displayName), color: .orange)
                 }
@@ -442,6 +453,11 @@ struct SettingsView: View {
     private func test() {
         guard let resolved else { return }
 
+        // 陌生网址分不出跑的是哪种中转站软件,依次试;专门认得的站点只试它自己
+        let attempts = resolved.adapter.siteMatchIsGuess
+            ? ProviderRegistry.guesses(site: input, key: keyInput)
+            : [resolved]
+
         // 整个流程只认这一段输入。和刷新那边同一个道理:
         // 中途用户可能已经把网址改了,那这次的结果就不属于屏幕上这段文字了。
         let probed = probeKey
@@ -450,21 +466,31 @@ struct SettingsView: View {
 
         Task {
             defer { probe.finish(probed) }
-            do {
-                // 只验连通性,这时还没学到任何重置规则,所以给一个默认 schedule
-                let report = try await resolved.adapter.verify(resolved.connection,
-                                                               language: l10n.language)
-                // 提交前校验:输入变了就整份丢掉 ——
-                // 否则界面会显示「连接成功」,而那说的是上一个网址
-                guard probeKey == probed else { return }
-                result = .success(report)
-                // 预填昵称。已存过的沿用用户起的名字 —— 重测一次不该把它冲掉
-                let account = ProviderRegistry.resolvedForSaving(resolved.connection, report: report)?.account
-                nickname = account.flatMap { service.archive.nickname(for: $0) } ?? report.accountName
-            } catch {
-                guard probeKey == probed else { return }
-                result = .failure(error.localizedDescription)
+            var failures: [String] = []
+            for attempt in attempts {
+                do {
+                    // 只验连通性,这时还没学到任何重置规则,所以给一个默认 schedule
+                    let report = try await attempt.adapter.verify(attempt.connection,
+                                                                  language: l10n.language)
+                    // 提交前校验:输入变了就整份丢掉 ——
+                    // 否则界面会显示「连接成功」,而那说的是上一个网址
+                    guard probeKey == probed else { return }
+                    verifiedConnection = attempt.connection
+                    result = .success(report)
+                    // 预填昵称。已存过的沿用用户起的名字 —— 重测一次不该把它冲掉
+                    let account = ProviderRegistry.resolvedForSaving(attempt.connection, report: report)?.account
+                    nickname = account.flatMap { service.archive.nickname(for: $0) } ?? report.accountName
+                    return
+                } catch {
+                    failures.append(attempts.count > 1
+                        ? "\(attempt.adapter.displayName):\(error.localizedDescription)"
+                        : error.localizedDescription)
+                }
             }
+            // 都没跑通:每一种各自的原因都列出来 —— 分不清站点是哪种软件时,
+            // 只报一条会把人引向错的方向
+            guard probeKey == probed else { return }
+            result = .failure(failures.joined(separator: "\n"))
         }
     }
 

@@ -80,6 +80,23 @@ let allSuites: [TestSuite] = [
         ("testDeclaresTheTwoThingsTheRelayDoesNotProvide", { RelayProviderTests().testDeclaresTheTwoThingsTheRelayDoesNotProvide() }),
     ]),
 
+    ("ClaudeCodeHubProviderTests", [
+        ("testBothLayersBecomeScopedBuckets", { ClaudeCodeHubProviderTests().testBothLayersBecomeScopedBuckets() }),
+        ("testUnsetLimitsProduceNoBucket", { ClaudeCodeHubProviderTests().testUnsetLimitsProduceNoBucket() }),
+        ("testTheKeysFixedDailyResetUsesTheServersTimeAndZone", { ClaudeCodeHubProviderTests().testTheKeysFixedDailyResetUsesTheServersTimeAndZone() }),
+        ("testARollingDailyQuotaHasNoPeriod", { ClaudeCodeHubProviderTests().testARollingDailyQuotaHasNoPeriod() }),
+        ("testWeeksAndMonthsFollowTheServersCalendar", { ClaudeCodeHubProviderTests().testWeeksAndMonthsFollowTheServersCalendar() }),
+        ("testRulesTheResponseDoesNotStateGetNoPeriod", { ClaudeCodeHubProviderTests().testRulesTheResponseDoesNotStateGetNoPeriod() }),
+        ("testWithoutTheServersTimeZoneNothingGetsAPeriod", { ClaudeCodeHubProviderTests().testWithoutTheServersTimeZoneNothingGetsAPeriod() }),
+        ("testAStoredSessionIsReusedWithoutLoggingIn", { ClaudeCodeHubProviderTests().testAStoredSessionIsReusedWithoutLoggingIn() }),
+        ("testWhenTheKeyIsRefusedItLogsInOnceAndKeepsTheSession", { ClaudeCodeHubProviderTests().testWhenTheKeyIsRefusedItLogsInOnceAndKeepsTheSession() }),
+        ("testAnExpiredSessionIsReplaced", { ClaudeCodeHubProviderTests().testAnExpiredSessionIsReplaced() }),
+        ("testASiteThatAcceptsTheKeyNeedsNoLogin", { ClaudeCodeHubProviderTests().testASiteThatAcceptsTheKeyNeedsNoLogin() }),
+        ("testABadKeySurfacesTheLoginError", { ClaudeCodeHubProviderTests().testABadKeySurfacesTheLoginError() }),
+        ("testLoginKeepsTheSessionOutOfTheCookieJar", { ClaudeCodeHubProviderTests().testLoginKeepsTheSessionOutOfTheCookieJar() }),
+        ("testIdentityIsTheKeyHashAtTheSiteRoot", { ClaudeCodeHubProviderTests().testIdentityIsTheKeyHashAtTheSiteRoot() }),
+    ]),
+
     ("Sub2APIProviderTests", [
         ("testKeyWindowsUseTheServersResetTimes", { Sub2APIProviderTests().testKeyWindowsUseTheServersResetTimes() }),
         ("testKeyWindowTitlesDoNotClaimCalendarPeriods", { Sub2APIProviderTests().testKeyWindowTitlesDoNotClaimCalendarPeriods() }),
@@ -187,6 +204,7 @@ let allSuites: [TestSuite] = [
         ("testARelayAdminPageWithoutApiIdIsPointedToTheStatsURL", { ProviderRegistryTests().testARelayAdminPageWithoutApiIdIsPointedToTheStatsURL() }),
         ("testNonURLsHaveNoOwner", { ProviderRegistryTests().testNonURLsHaveNoOwner() }),
         ("testUnknownSitesFallToTheGenericRelaySoftwareAsAGuess", { ProviderRegistryTests().testUnknownSitesFallToTheGenericRelaySoftwareAsAGuess() }),
+        ("testUnknownSitesTryClaudeCodeHubBeforeSub2API", { ProviderRegistryTests().testUnknownSitesTryClaudeCodeHubBeforeSub2API() }),
         ("testTheGenericAdapterNeverShadowsASpecificOne", { ProviderRegistryTests().testTheGenericAdapterNeverShadowsASpecificOne() }),
         ("testTheTuziBaseURLPlusAKeyMakesTheSameConnection", { ProviderRegistryTests().testTheTuziBaseURLPlusAKeyMakesTheSameConnection() }),
         ("testSitePlusKeyNeedsASiteThatTakesAKey", { ProviderRegistryTests().testSitePlusKeyNeedsASiteThatTakesAKey() }),

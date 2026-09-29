@@ -244,8 +244,15 @@ public enum ProviderRegistry {
 
     /// 已知适配器,按 detect 的尝试顺序排列。
     ///
-    /// **通用的排最后**:sub2api 认任何网址,排前面会把专门认得的站点抢走(EXT-011)。
-    public static let all: [UsageProviderAdapter] = [RelayProvider(), TuziProvider(), Sub2APIProvider()]
+    /// **通用的排最后**:中转站软件认任何网址,排前面会把专门认得的站点抢走(EXT-011)。
+    ///
+    /// 两个通用的之间 **claude-code-hub 在前**:陌生网址测试时按这个顺序依次试。
+    /// 先试 sub2api 的话,它的 `GET /v1/usage` 在 claude-code-hub 站点上会被当成
+    /// **一次模型转发请求**(实测返回「No available providers」并开了一个会话)——
+    /// 真实站点上那等于借用户的 key 往上游多发一个请求。反过来 claude-code-hub
+    /// 走的是 `/api/v1/me/quota` 和 `/api/auth/login`,在 sub2api 站点上只会 401 / 404。
+    public static let all: [UsageProviderAdapter] = [RelayProvider(), TuziProvider(),
+                                                     ClaudeCodeHubProvider(), Sub2APIProvider()]
 
     /// 兜底适配器:存量配置里没有 providerID,一律按它算。
     public static var fallback: UsageProviderAdapter { RelayProvider() }
@@ -342,6 +349,27 @@ public enum ProviderRegistry {
               let connection = owner.parseConnection(site: url, key: key)
         else { return nil }
         return (owner, connection)
+    }
+
+    /// 认出网站的**所有**通用适配器(中转站软件)各自拼出的连接,按注册表顺序。
+    ///
+    /// 陌生网址光看地址分不出跑的是哪种软件,测试连接时依次试 —— 请求只发往
+    /// 用户自己填的那个站点,不会发给第三方(EXT-011)。
+    public static func guesses(site: String, key: String) -> [(adapter: UsageProviderAdapter,
+                                                              connection: Connection)] {
+        guard let url = siteURL(site) else { return [] }
+        return all.filter { $0.siteMatchIsGuess && $0.recognizesSite(url) }
+            .compactMap { adapter in adapter.parseConnection(site: url, key: key).map { (adapter, $0) } }
+    }
+
+    /// 站点根地址:scheme + host + port。用户粘的是编程工具里的 Base URL,可能带
+    /// `/v1`、`/api` 之类的路径,而中转站软件的用量接口都在根上。
+    /// ponytail: 部署在子路径下的站点(反代到 `/relay/`)会被截掉前缀,遇到再说。
+    static func siteRoot(_ site: URLComponents) -> String? {
+        guard let scheme = site.scheme?.lowercased(), scheme == "https" || scheme == "http",
+              let host = site.host, !host.isEmpty
+        else { return nil }
+        return site.port.map { "\(scheme)://\(host):\($0)" } ?? "\(scheme)://\(host)"
     }
 
     private static func siteURL(_ input: String) -> URLComponents? {

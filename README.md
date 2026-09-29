@@ -54,6 +54,7 @@ to reach the next reset without running dry.
 |---|---|---|---|
 | [claude-relay-service](https://github.com/Wei-Shaw/claude-relay-service) | The usage-stats page URL, `https://your-relay.example.com/admin-next/api-stats?apiId=…` | Total, daily, weekly Opus, rate-limit window | Preferences. The `apiId` is read-only and can't make requests |
 | [tu-zi Coding](https://api.tu-zi.com/) | The service address from your coding tool, such as `https://api.tu-zi.com/coding`, then the API key (`sk-…`) | Daily, weekly, monthly | macOS Keychain, because the key can spend money |
+| Relays built on [claude-code-hub](https://github.com/ding113/claude-code-hub) | The site address from your coding tool, then the API key the site gave you | Whatever the site set, per key and per account: 5-hour / daily / this week / this month / total | macOS Keychain (the key, and the login session it is exchanged for) |
 | Relays built on [sub2api](https://github.com/Wei-Shaw/sub2api) | The site address from your coding tool, then the API key the site gave you | Whatever the site set: 5-hour / 24-hour / 7-day limits, or a subscription's daily / 7-day / 30-day limits | macOS Keychain |
 
 It does **not** work with the official Anthropic API, Amazon Bedrock, Google Vertex AI, or gateways
@@ -257,7 +258,7 @@ active account. Saved accounts make switching quick instead.
 
 ```bash
 ./build.sh                      # build CodaPace.app
-swift run CoreTests             # 443 unit tests
+swift run CoreTests             # 458 unit tests
 swift Scripts/make-icon.swift   # regenerate Resources/AppIcon.icns
 ```
 

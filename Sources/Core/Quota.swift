@@ -115,11 +115,16 @@ public enum QuotaUnit: Equatable {
 public enum BucketTitle: Equatable {
     case localized(LangKey)
     case provider(String)
+    /// 同一个周期分属两层限额时(claude-code-hub 的 key 级和账户级),
+    /// 标题带上是哪一层:「Key · 本周」
+    case scoped(scope: LangKey, period: LangKey)
 
     public func text(_ language: Language) -> String {
         switch self {
         case .localized(let key): return L10n.text(key, language)
         case .provider(let name): return name
+        case .scoped(let scope, let period):
+            return L10n.text(scope, language) + " · " + L10n.text(period, language)
         }
     }
 }

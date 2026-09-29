@@ -14,11 +14,10 @@
 //     `weekly_window_start`,**没有日窗和月窗的起点** —— 见 buildSnapshot 里各自的处理。
 //  3. 钱包余额(只有 `balance`):没有周期额度,不在接入范围内(EXT-011),如实报错。
 //
-//  响应里**没有任何账户或 key 的 ID**,身份用 key 的哈希 —— 见 accountID(for:)。
+//  响应里**没有任何账户或 key 的 ID**,身份用 key 的哈希 —— 见 AccountIdentity.hashedKeyID。
 //
 
 import Foundation
-import CryptoKit
 
 public struct Sub2APIProvider: UsageProviderAdapter {
 
@@ -66,32 +65,16 @@ public struct Sub2APIProvider: UsageProviderAdapter {
     public var siteMatchIsGuess: Bool { true }
     public var keyFollowsSite: Bool { true }
 
-    /// 用户粘的是编程工具里的 Base URL,可能带 `/v1`、`/api` 之类的路径;
-    /// 用量接口在站点根上,所以只留 scheme + host + port。
-    /// ponytail: 部署在子路径下的站点(反代到 `/sub2api/`)会被截掉前缀,遇到再说。
+    /// 请求发往站点根(`ProviderRegistry.siteRoot`);身份是 key 的哈希,
+    /// 响应里没有账户 ID(`AccountIdentity.hashedKeyID`)
     public func parseConnection(site: URLComponents, key: String) -> Connection? {
         let key = key.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !key.isEmpty, !key.contains(where: { $0.isWhitespace }),
-              let scheme = site.scheme?.lowercased(), let host = site.host, !host.isEmpty
+              let base = ProviderRegistry.siteRoot(site)
         else { return nil }
-
-        var base = "\(scheme)://\(host)"
-        if let port = site.port { base += ":\(port)" }
-
-        return Connection(
-            account: AccountIdentity(providerID: providerID, baseURL: base,
-                                     apiId: Self.accountID(for: key)),
-            secret: key
-        )
-    }
-
-    /// 身份 = key 的 SHA-256 前 16 位。
-    ///
-    /// 响应里**永远不会**有账户 ID(tu-zi 那种「先占位、测过再换真身份」不适用),
-    /// 所以哈希本身就是身份,不是占位。同一把 key 永远落在同一个分区;换 key 就是
-    /// 新账户 —— 新 key 本来就是新的一份额度。存进偏好的只有哈希,key 在钥匙串。
-    static func accountID(for key: String) -> String {
-        SHA256.hash(data: Data(key.utf8)).prefix(8).map { String(format: "%02x", $0) }.joined()
+        return Connection(account: AccountIdentity(providerID: providerID, baseURL: base,
+                                                   apiId: AccountIdentity.hashedKeyID(key)),
+                          secret: key)
     }
 
     /// 站点首页。`/key-usage` 那个公开页要再输一遍 key,不如首页有用

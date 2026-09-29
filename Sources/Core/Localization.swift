@@ -75,6 +75,7 @@ public enum LangKey: String, CaseIterable {
     case sourceAuto, quotaTotal, quotaDaily, quotaWeeklyOpus, quotaWindow
     case quotaWeekly, quotaMonthly
     case quotaFiveHours, quotaOneDay, quotaSevenDays, quotaThirtyDays
+    case quotaScopeKey, quotaScopeAccount
 
     // 菜单栏样式
     case styleRings, styleBar
@@ -218,6 +219,11 @@ public enum L10n {
             .zhHans: "本月", .zhHant: "本月", .en: "This month"],
         // 从第一次使用起算的固定时长(sub2api)。**不是**自然日、自然周,
         // 所以不用「今日」「本周」—— 那会说出对方没说过的事
+        // 两层限额的前缀(claude-code-hub):key 自己的,和整个账户共用的
+        .quotaScopeKey: [
+            .zhHans: "Key", .zhHant: "Key", .en: "Key"],
+        .quotaScopeAccount: [
+            .zhHans: "账户", .zhHant: "帳戶", .en: "Account"],
         .quotaFiveHours: [
             .zhHans: "5 小时", .zhHant: "5 小時", .en: "5 hours"],
         .quotaOneDay: [

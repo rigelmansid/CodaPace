@@ -190,9 +190,15 @@ final class ProviderRegistryTests: XCTestCase {
     /// 不说「已识别」(EXT-011)
     func testUnknownSitesFallToTheGenericRelaySoftwareAsAGuess() {
         let owner = ProviderRegistry.siteOwner(for: "https://example.com/dashboard")
-        XCTAssertEqual(owner?.providerID, Sub2APIProvider.id)
         XCTAssertEqual(owner?.siteMatchIsGuess, true)
         XCTAssertEqual(ProviderRegistry.siteOwner(for: "coding.tu-zi.com")?.siteMatchIsGuess, false)
+    }
+
+    /// 陌生网址先试 claude-code-hub 再试 sub2api:反过来的话,sub2api 的 `/v1/usage`
+    /// 在 claude-code-hub 站点上会被当成一次模型转发,借用户的 key 往上游多发请求
+    func testUnknownSitesTryClaudeCodeHubBeforeSub2API() {
+        let order = ProviderRegistry.guesses(site: "https://relay.example.com", key: "sk-lab").map(\.adapter.providerID)
+        XCTAssertEqual(order, [ClaudeCodeHubProvider.id, Sub2APIProvider.id])
     }
 
     /// 通用的排在最后:专门认得的站点不能被它抢走

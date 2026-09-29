@@ -12,6 +12,7 @@
 //
 
 import Foundation
+import CryptoKit
 
 // MARK: - 账户身份
 
@@ -150,5 +151,21 @@ public struct RefreshGate {
     /// 否则旧账户的收尾会清掉新账户正在进行的刷新标记,让 UI 的加载态和实际不符。
     public mutating func finish(_ account: AccountIdentity) {
         gate.finish(account)
+    }
+}
+
+// MARK: - 用 key 的哈希当身份
+
+extension AccountIdentity {
+
+    /// key 的 SHA-256 前 16 位,给**响应里永远不带账户 ID** 的中转站软件当身份用
+    /// (sub2api、claude-code-hub)。
+    ///
+    /// 这和 tu-zi 那种「先占位、测过再换真身份」不同:那边真 ID 总会到手,拿哈希顶上
+    /// 会在那天把历史劈成两半;这边永远没有真 ID,哈希本身就是身份。同一把 key 永远
+    /// 落在同一个分区;换 key 就是新账户 —— 新 key 本来就是新的一份额度。
+    /// 存进偏好的只有哈希,key 在钥匙串。
+    public static func hashedKeyID(_ key: String) -> String {
+        SHA256.hash(data: Data(key.utf8)).prefix(8).map { String(format: "%02x", $0) }.joined()
     }
 }
