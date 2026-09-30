@@ -109,6 +109,38 @@ final class RelayProviderTests: XCTestCase {
 
 final class ProviderRegistryTests: XCTestCase {
 
+    // ── 陌生网址必须先验证(OPT-016)───────────────────────────
+
+    private func guessReport(_ providerID: String) -> ConnectionReport {
+        ConnectionReport(providerID: providerID, displayName: providerID,
+                         accountName: "lab", isActive: true,
+                         capabilities: [], findings: [])
+    }
+
+    /// 本条的起因:陌生网址被解析成排在前面的 claude-code-hub,身份由 key 哈希当场算得出,
+    /// 于是不测试就能存下 —— 真实站点若是 sub2api,此后每次刷新都走错接口
+    func testAGuessedSiteCannotBeSavedWithoutVerification() {
+        guard let (adapter, connection) = ProviderRegistry.parse(site: "https://unknown.example.com/v1",
+                                                                 key: "sk-lab") else {
+            return XCTFail("解析不出连接")
+        }
+        XCTAssertTrue(adapter.siteMatchIsGuess)
+        XCTAssertNil(ProviderRegistry.resolvedForSaving(connection, report: nil))
+
+        // 跑通的是另一家:这份报告说明不了这个连接
+        XCTAssertNil(ProviderRegistry.resolvedForSaving(connection, report: guessReport(Sub2APIProvider.id)))
+
+        // 跑通的正是这家:可以存,身份原样(哈希本身就是身份,不用换)
+        XCTAssertEqual(ProviderRegistry.resolvedForSaving(connection, report: guessReport(connection.account.providerID)),
+                       connection)
+    }
+
+    /// 专门认得的站点不受影响:中转站的统计页网址解析出来就能存
+    func testARecognizedSiteStillSavesWithoutVerification() {
+        guard let (_, connection) = ProviderRegistry.parse(statsURL) else { return XCTFail("解析不出连接") }
+        XCTAssertEqual(ProviderRegistry.resolvedForSaving(connection, report: nil), connection)
+    }
+
     func testResolvesByProviderID() {
         XCTAssertEqual(ProviderRegistry.adapter(id: RelayProvider.id)?.providerID, RelayProvider.id)
         XCTAssertNil(ProviderRegistry.adapter(id: "nope"))

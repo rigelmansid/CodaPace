@@ -75,6 +75,11 @@ public struct ClaudeCodeHubProvider: UsageProviderAdapter {
 
     private var sessions: SessionTokenStore { injectedSessions ?? SessionTokens.store }
 
+    /// 测试连接用:登录换来的会话只进 `store`,不进钥匙串(OPT-017)
+    public func sessionScoped(to store: SessionTokenStore) -> UsageProviderAdapter {
+        ClaudeCodeHubProvider(transport: transport, sessions: store)
+    }
+
     public var providerID: String { Self.id }
     public var displayName: String { "claude-code-hub" }
     public var credentialSensitivity: CredentialSensitivity { .secret }
@@ -233,7 +238,7 @@ extension ClaudeCodeHubProvider {
         let keyDailyTitle: LangKey = q.dailyResetMode == "rolling" ? .quotaOneDay : .quotaDaily
 
         // 5 小时是固定还是滚动、账户的日重置规则,响应里都没有 —— 只显示用量
-        let rows: [(String, LangKey, LangKey, Double?, Double, ResetRule?)] = [
+        let rows: [(String, LangKey, LangKey, Double?, Double?, ResetRule?)] = [
             ("key_5h", .quotaScopeKey, .quotaFiveHours, q.key.limit5h, q.key.current5h, nil),
             ("key_daily", .quotaScopeKey, keyDailyTitle, q.key.limitDaily, q.key.currentDaily, keyDaily),
             ("key_weekly", .quotaScopeKey, .quotaWeekly, q.key.limitWeekly, q.key.currentWeekly, weekly),
@@ -246,11 +251,16 @@ extension ClaudeCodeHubProvider {
             ("user_total", .quotaScopeAccount, .quotaTotal, q.user.limitTotal, q.user.currentTotal, nil),
         ]
 
+        // 有上限却没报已用(OPT-015):面板照旧按 0 显示,但整份快照不进历史 ——
+        // 和中转站 `UserStats.hasCompleteUsage` 同一个做法。0 和「不知道」在库里是两件事
+        var missingUsed = false
+
         // 上限为 null 表示这一档不限 —— 不产出桶(两层加起来最多十条,只留设了上限的)
         let gauges = rows.compactMap { id, scope, period, limit, used, rule -> QuotaBucket? in
             guard let limit, limit > 0 else { return nil }
+            if used == nil { missingUsed = true }
             return QuotaBucket(id: id, title: .scoped(scope: scope, period: period),
-                               used: used, limit: limit, unit: .money(currency: "USD"),
+                               used: used ?? 0, limit: limit, unit: .money(currency: "USD"),
                                window: rule?.period(containing: now), rule: rule)
         }
 
@@ -265,7 +275,8 @@ extension ClaudeCodeHubProvider {
             monthlyCost: nil,
             monthlyRequests: nil,
             fetchedAt: now,
-            hasCompleteUsage: !gauges.isEmpty
+            // 累计 token / 请求数这家本来就不报(能力声明里没有),不算缺
+            hasCompleteUsage: !gauges.isEmpty && !missingUsed
         )
     }
 }
@@ -278,8 +289,9 @@ public struct ClaudeCodeHubQuota: Equatable {
     public struct Layer: Equatable {
         public var limit5h: Double?, limitDaily: Double?, limitWeekly: Double?
         public var limitMonthly: Double?, limitTotal: Double?
-        public var current5h = 0.0, currentDaily = 0.0, currentWeekly = 0.0
-        public var currentMonthly = 0.0, currentTotal = 0.0
+        /// 已用值缺了就是 nil,不是 0(不变量 3、OPT-015)
+        public var current5h: Double?, currentDaily: Double?, currentWeekly: Double?
+        public var currentMonthly: Double?, currentTotal: Double?
     }
 
     public var key = Layer()
@@ -298,6 +310,8 @@ extension ClaudeCodeHubQuota {
             return try JSONDecoder().decode(ClaudeCodeHubQuota.self, from: data)
         } catch let invalid as InvalidFieldError {
             throw APIError(L10n.format(.errInvalidFieldFormat, language, invalid.field))
+        } catch is ProtocolMismatchError {
+            throw APIError(L10n.format(.errNotThisProtocolFormat, language, "claude-code-hub"))
         } catch {
             throw APIError(L10n.text(.errUnparsable, language))
         }
@@ -341,20 +355,27 @@ extension ClaudeCodeHubQuota: Decodable {
 
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
+
+        // 协议特征(OPT-016):两个启用标记每份响应都有,而且「能不能用」就靠它俩判断 ——
+        // 缺了它们就不是这个接口,而不是「全都没设上限、账户停用」
+        guard try c.present(.userIsEnabled), try c.present(.keyIsEnabled) else {
+            throw ProtocolMismatchError()
+        }
+
         key = Layer(limit5h: try c.number(.keyLimit5hUsd), limitDaily: try c.number(.keyLimitDailyUsd),
                     limitWeekly: try c.number(.keyLimitWeeklyUsd), limitMonthly: try c.number(.keyLimitMonthlyUsd),
                     limitTotal: try c.number(.keyLimitTotalUsd),
-                    current5h: try c.number(.keyCurrent5hUsd) ?? 0, currentDaily: try c.number(.keyCurrentDailyUsd) ?? 0,
-                    currentWeekly: try c.number(.keyCurrentWeeklyUsd) ?? 0,
-                    currentMonthly: try c.number(.keyCurrentMonthlyUsd) ?? 0,
-                    currentTotal: try c.number(.keyCurrentTotalUsd) ?? 0)
+                    current5h: try c.number(.keyCurrent5hUsd), currentDaily: try c.number(.keyCurrentDailyUsd),
+                    currentWeekly: try c.number(.keyCurrentWeeklyUsd),
+                    currentMonthly: try c.number(.keyCurrentMonthlyUsd),
+                    currentTotal: try c.number(.keyCurrentTotalUsd))
         user = Layer(limit5h: try c.number(.userLimit5hUsd), limitDaily: try c.number(.userLimitDailyUsd),
                      limitWeekly: try c.number(.userLimitWeeklyUsd), limitMonthly: try c.number(.userLimitMonthlyUsd),
                      limitTotal: try c.number(.userLimitTotalUsd),
-                     current5h: try c.number(.userCurrent5hUsd) ?? 0, currentDaily: try c.number(.userCurrentDailyUsd) ?? 0,
-                     currentWeekly: try c.number(.userCurrentWeeklyUsd) ?? 0,
-                     currentMonthly: try c.number(.userCurrentMonthlyUsd) ?? 0,
-                     currentTotal: try c.number(.userCurrentTotalUsd) ?? 0)
+                     current5h: try c.number(.userCurrent5hUsd), currentDaily: try c.number(.userCurrentDailyUsd),
+                     currentWeekly: try c.number(.userCurrentWeeklyUsd),
+                     currentMonthly: try c.number(.userCurrentMonthlyUsd),
+                     currentTotal: try c.number(.userCurrentTotalUsd))
         userName = try c.text(.userName) ?? ""
         let userEnabled = try c.flag(.userIsEnabled) ?? false
         let keyEnabled = try c.flag(.keyIsEnabled) ?? false

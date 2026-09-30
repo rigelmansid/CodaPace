@@ -38,6 +38,14 @@ public struct InvalidFieldError: Error, Equatable {
     public init(field: String) { self.field = field }
 }
 
+/// 响应解得开,却**不是这家的格式** —— 一个协议特征字段都没有(OPT-016)。
+///
+/// 通用的中转站软件适配器几乎所有字段都可缺失(没设上限就不报),于是任何 JSON 对象
+/// 都能解成一份「全默认值」:反代的 `200 {"error":…}`、别的软件的响应都会被当成
+/// 「这家、没设额度」,测试连接就此报成功并停下,不再试下一家。
+/// 合法的「没设上限」和「根本不是这个协议」必须分开 —— 前者照常,后者报错。
+struct ProtocolMismatchError: Error {}
+
 // MARK: - 解码辅助
 
 /// 这几个是**通用**的严格解码工具,不属于任何一家的线上格式 ——

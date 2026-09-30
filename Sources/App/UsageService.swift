@@ -99,23 +99,31 @@ final class UsageService: ObservableObject {
     /// - Throws: 钥匙串写入失败。**必须往上抛** —— 吞掉的话设置窗口会关掉、
     ///   界面显示已配置,而每次刷新都取不到密钥。
     func applyAccount(_ connection: Connection) throws {
-        let changed = connection.account != Config.account
+        let previous = Config.account
         try Config.apply(connection)
-        accountDidSwitch(changed: changed)
+        accountDidSwitch(from: previous)
     }
 
     /// 切到一个已存档的账户(EXT-010)。和 `applyAccount` 的区别只在写配置那一步 ——
     /// 这里手里没有密钥,也不该有,理由见 `Config.select`。之后的清场是同一段。
     func selectAccount(_ account: AccountIdentity) {
-        let changed = account != Config.account
+        let previous = Config.account
         Config.select(account)
-        accountDidSwitch(changed: changed)
+        accountDidSwitch(from: previous)
     }
 
     /// 配置已写入之后的清场与重拉。`applyAccount` 和 `selectAccount` 共用这一段 ——
     /// 各写一份的话,哪天这里多一件「换账户必须做的事」,漏改的那条就会串账户(不变量 5)。
-    private func accountDidSwitch(changed: Bool) {
+    private func accountDidSwitch(from previous: AccountIdentity) {
+        let changed = previous != Config.account
         if changed {
+            // 没存档的账户一被切走,它的密钥和会话就再也够不着了 —— 删除入口只在存档列表里。
+            // 不存档就是一次性配置(OPT-019,用户 2026-09-30 选定):切走即清,不留孤儿。
+            // 删失败不拦切换:最坏也就是回到修之前的样子
+            if previous.isConfigured, !archive.contains(previous) {
+                try? Config.removeCredential(for: previous)
+            }
+
             // 旧账户的数字不能挂在新账户的名字底下,哪怕只是新数据到达前的几百毫秒
             snapshot = nil
             errorText = nil
@@ -196,7 +204,7 @@ final class UsageService: ObservableObject {
             // 密钥也是身份的一部分:只定住身份而让适配器自己去取密钥,
             // 换账户时同样会串(见 Connection)。
             let adapter = ProviderRegistry.adapter(for: account)
-            let built = try await adapter.fetchUsage(Config.connection(for: account),
+            let built = try await adapter.fetchUsage(try Config.connection(for: account),
                                                      schedule: Config.schedule(for: account),
                                                      language: Config.language)
 

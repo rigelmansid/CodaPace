@@ -25,6 +25,11 @@ final class SettingsWindow {
             w.isReleasedWhenClosed = false
             w.center()
             window = w
+        } else if window?.isVisible == false {
+            // 窗口关上只是藏起来,视图的 @State 会一直留着(OPT-020):没保存就关窗,
+            // 再打开时框里还是上次粘的 key 和旧的测试结果,存档行里没回车的改名也像是已生效。
+            // 所以每次**重新打开**都换一个新视图。开着的时候再点一次不重建 —— 那会冲掉正在填的
+            window?.contentViewController = NSHostingController(rootView: SettingsView())
         }
         // 每次打开都重设标题 —— 窗口只创建一次,语言换了标题得跟上
         window?.title = L10n.text(.setupWindowTitle, Localization.shared.language)
@@ -68,6 +73,10 @@ struct SettingsView: View {
     /// 测试**实际跑通**的那个连接。陌生网址会依次试几种中转站软件,跑通的未必是
     /// `resolved` 里排第一的那家 —— 保存的必须是验过的这一个(EXT-011)
     @State private var verifiedConnection: Connection?
+
+    /// 测试时换来的登录会话先放这里,**保存成功才移交**给正式存储(钥匙串)。
+    /// 测试连接什么都不落盘(OPT-017);输入一变就换一份新的,旧的随之丢掉
+    @State private var probeSessions = InMemorySessionTokenStore()
 
     /// 密钥默认遮起来。**刻意给一个「显示」开关** —— 粘贴错一个字符
     /// 却看不见,只会对着一句「连接失败」反复试。
@@ -195,8 +204,11 @@ struct SettingsView: View {
 
                 Spacer()
 
+                // 只挡「正在测的就是这段输入」(OPT-020)。改过输入之后旧测试还在飞也要能重测 ——
+                // 旧结果回来时过不了提交前的校验,本来就会作废;从前挡的是 isBusy,
+                // 陌生网址依次试两家、每个请求 15 秒超时,按钮能灰上几十秒
                 Button(l10n.t(.setupTest)) { test() }
-                    .disabled(resolved == nil || probe.isBusy)
+                    .disabled(resolved == nil || probe.token == probeKey)
 
                 Button(l10n.t(.setupSave)) { save() }
                     .keyboardShortcut(.defaultAction)
@@ -288,6 +300,7 @@ struct SettingsView: View {
                     // 对 tu-zi 这还顺带把保存按钮重新锁上 —— 正是要的行为。
                     result = .idle
                     verifiedConnection = nil
+                    probeSessions = InMemorySessionTokenStore()
                 }
 
                 if inputIsSecret { revealToggle }
@@ -305,7 +318,11 @@ struct SettingsView: View {
                     }
                     .textFieldStyle(.roundedBorder)
                     .font(.system(size: 11, design: .monospaced))
-                    .onChange(of: keyInput) { _ in result = .idle; verifiedConnection = nil }
+                    .onChange(of: keyInput) { _ in
+                        result = .idle
+                        verifiedConnection = nil
+                        probeSessions = InMemorySessionTokenStore()
+                    }
 
                     revealToggle
                 }
@@ -347,8 +364,11 @@ struct SettingsView: View {
                     // 保存按钮灰着总得有个理由。这家的账户标识在响应里,
                     // 不测一次就没有身份可存 —— 说清楚,而不是让用户对着
                     // 一个点不动的按钮猜自己哪里填错了。
+                    // 两种「先测试」理由不同:陌生网址是协议没确认(OPT-016),
+                    // tu-zi 是身份在响应里 —— 各说各的,别拿一句去解释另一件事
                     if needsVerification {
-                        hint(l10n.t(.setupMustTestFirst), color: .orange)
+                        hint(l10n.t(resolved.adapter.siteMatchIsGuess ? .setupMustTestGuess : .setupMustTestFirst),
+                             color: .orange)
                     }
                 }
             } else if let keyOwner {
@@ -437,6 +457,7 @@ struct SettingsView: View {
         let probed = probeKey
         guard probe.begin(probed) else { return }
         result = .testing
+        let sessions = probeSessions
 
         Task {
             defer { probe.finish(probed) }
@@ -444,8 +465,8 @@ struct SettingsView: View {
             for attempt in attempts {
                 do {
                     // 只验连通性,这时还没学到任何重置规则,所以给一个默认 schedule
-                    let report = try await attempt.adapter.verify(attempt.connection,
-                                                                  language: l10n.language)
+                    let report = try await attempt.adapter.sessionScoped(to: sessions)
+                        .verify(attempt.connection, language: l10n.language)
                     // 提交前校验:输入变了就整份丢掉 ——
                     // 否则界面会显示「连接成功」,而那说的是上一个网址
                     guard probeKey == probed else { return }
@@ -474,6 +495,11 @@ struct SettingsView: View {
         guard let saveable else { return }
         do {
             try UsageService.shared.applyAccount(saveable)
+            // 测试时换来的会话到这里才算数:移交给正式存储,刷新就不必再登录一次(OPT-017)。
+            // 放在 apply 成功之后 —— 钥匙串写密钥失败时,不该留下一份会话
+            if let token = probeSessions.token(for: saveable.account) {
+                SessionTokens.store.setToken(token, for: saveable.account)
+            }
             // 存档在 apply 成功之后:钥匙串写失败时不该留下一条取不到密钥的存档
             if offersArchive && archiveOnSave {
                 service.archiveCurrentAccount(nickname: nickname)

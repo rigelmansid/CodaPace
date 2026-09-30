@@ -8,6 +8,13 @@
 
 let allSuites: [TestSuite] = [
 
+    ("TestSupportTests", [
+        ("testAccuracyAssertionPassesWithinTolerance", { TestSupportTests().testAccuracyAssertionPassesWithinTolerance() }),
+        ("testAccuracyAssertionFailsOutsideTolerance", { TestSupportTests().testAccuracyAssertionFailsOutsideTolerance() }),
+        ("testAccuracyAssertionRejectsNaN", { TestSupportTests().testAccuracyAssertionRejectsNaN() }),
+        ("testAccuracyAssertionHandlesInfinity", { TestSupportTests().testAccuracyAssertionHandlesInfinity() }),
+    ]),
+
     ("TimeWindowTests", [
         ("testElapsedAndRemainingRatio", { TimeWindowTests().testElapsedAndRemainingRatio() }),
         ("testRatiosAreClampedOutsideTheWindow", { TimeWindowTests().testRatiosAreClampedOutsideTheWindow() }),
@@ -95,6 +102,11 @@ let allSuites: [TestSuite] = [
         ("testABadKeySurfacesTheLoginError", { ClaudeCodeHubProviderTests().testABadKeySurfacesTheLoginError() }),
         ("testLoginKeepsTheSessionOutOfTheCookieJar", { ClaudeCodeHubProviderTests().testLoginKeepsTheSessionOutOfTheCookieJar() }),
         ("testIdentityIsTheKeyHashAtTheSiteRoot", { ClaudeCodeHubProviderTests().testIdentityIsTheKeyHashAtTheSiteRoot() }),
+        ("testALimitWithoutItsUsageIsNotStoredAsZero", { ClaudeCodeHubProviderTests().testALimitWithoutItsUsageIsNotStoredAsZero() }),
+        ("testAMissingUsageOnAnUnlimitedTierDoesNotCount", { ClaudeCodeHubProviderTests().testAMissingUsageOnAnUnlimitedTierDoesNotCount() }),
+        ("testVerifyRejectsAnUnrelatedJSONObject", { ClaudeCodeHubProviderTests().testVerifyRejectsAnUnrelatedJSONObject() }),
+        ("testAScopedVerifyKeepsTheSessionOutOfTheSharedStore", { ClaudeCodeHubProviderTests().testAScopedVerifyKeepsTheSessionOutOfTheSharedStore() }),
+        ("testAdaptersWithoutSessionsIgnoreTheScope", { ClaudeCodeHubProviderTests().testAdaptersWithoutSessionsIgnoreTheScope() }),
     ]),
 
     ("Sub2APIProviderTests", [
@@ -112,6 +124,11 @@ let allSuites: [TestSuite] = [
         ("testAWalletOnlyKeyIsRejectedWithAClearMessage", { Sub2APIProviderTests().testAWalletOnlyKeyIsRejectedWithAClearMessage() }),
         ("testBothFailureShapesSurfaceTheServersMessage", { Sub2APIProviderTests().testBothFailureShapesSurfaceTheServersMessage() }),
         ("testIdentityIsAStableHashOfTheKey", { Sub2APIProviderTests().testIdentityIsAStableHashOfTheKey() }),
+        ("testAMissingTotalDoesNotInflateTheDaysUsage", { Sub2APIProviderTests().testAMissingTotalDoesNotInflateTheDaysUsage() }),
+        ("testANullTotalMakesTheReadingIncomplete", { Sub2APIProviderTests().testANullTotalMakesTheReadingIncomplete() }),
+        ("testALimitWithoutItsUsageIsNotStoredAsZero", { Sub2APIProviderTests().testALimitWithoutItsUsageIsNotStoredAsZero() }),
+        ("testAFullReadingIsStillComplete", { Sub2APIProviderTests().testAFullReadingIsStillComplete() }),
+        ("testAnUnrelatedJSONObjectIsNotTakenForSub2API", { Sub2APIProviderTests().testAnUnrelatedJSONObjectIsNotTakenForSub2API() }),
     ]),
 
     ("TuziDecodingTests", [
@@ -194,6 +211,8 @@ let allSuites: [TestSuite] = [
 
     ("ProviderRegistryTests", [
         ("testResolvesByProviderID", { ProviderRegistryTests().testResolvesByProviderID() }),
+        ("testAGuessedSiteCannotBeSavedWithoutVerification", { ProviderRegistryTests().testAGuessedSiteCannotBeSavedWithoutVerification() }),
+        ("testARecognizedSiteStillSavesWithoutVerification", { ProviderRegistryTests().testARecognizedSiteStillSavesWithoutVerification() }),
         ("testUnknownOrMissingProviderIDFallsBack", { ProviderRegistryTests().testUnknownOrMissingProviderIDFallsBack() }),
         ("testParseReturnsBothTheAdapterAndTheAccount", { ProviderRegistryTests().testParseReturnsBothTheAdapterAndTheAccount() }),
         ("testUnparsableInputResolvesToNothing", { ProviderRegistryTests().testUnparsableInputResolvesToNothing() }),
@@ -576,6 +595,7 @@ let allSuites: [TestSuite] = [
         ("testTransactionRollsBackAPartialWrite", { HistoryStoreTests().testTransactionRollsBackAPartialWrite() }),
         ("testStoreStaysUsableAfterARollback", { HistoryStoreTests().testStoreStaysUsableAfterARollback() }),
         ("testNestedTransactionIsRejected", { HistoryStoreTests().testNestedTransactionIsRejected() }),
+        ("testRequestCountsBeyond32BitsRoundTrip", { HistoryStoreTests().testRequestCountsBeyond32BitsRoundTrip() }),
     ]),
 
     ("FieldValidityTests", [
@@ -597,6 +617,11 @@ let allSuites: [TestSuite] = [
         ("testInvalidResponseLeavesNoZeroSample", { IncompleteResponseTests().testInvalidResponseLeavesNoZeroSample() }),
         ("testInvalidResponseDoesNotCauseATokenSpike", { IncompleteResponseTests().testInvalidResponseDoesNotCauseATokenSpike() }),
         ("testInvalidResponseNeverReachesResetLearning", { IncompleteResponseTests().testInvalidResponseNeverReachesResetLearning() }),
+    ]),
+
+    ("HistoryRetentionTests", [
+        ("testOldSamplesArePrunedButDailyTotalsAreKept", { HistoryRetentionTests().testOldSamplesArePrunedButDailyTotalsAreKept() }),
+        ("testPruningRunsAtMostOncePerDayUntilReset", { HistoryRetentionTests().testPruningRunsAtMostOncePerDayUntilReset() }),
     ]),
 
     ("HistoryWriterTests", [

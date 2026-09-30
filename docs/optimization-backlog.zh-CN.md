@@ -2,7 +2,7 @@
 
 审查日期：2026-09-18  
 审查基线：`bfcf5e5`  
-状态：原审查列出 OPT-001…011，本文仅记录审查结果，不代表已经修复。
+状态：原审查列出 OPT-001…011，已全部修复（见进度总览）。OPT-013 起是第二轮审查（2026-09-30，基线 `61f6821`）录入的，见文末。
 
 **OPT-012 是后来追加的**（2026-09-21），不属于那次审查 —— 它是修完 OPT-008 / OPT-009 之后，由一张实机截图暴露出来的新缺口。格式沿用原有条目。
 
@@ -22,6 +22,24 @@
 - [x] OPT-010 · P2 · 过期窗口仍给出正常速度判断 —— 已随 EXT-004 修复，见该条目末尾
 - [x] OPT-011 · P2 · 夏令时附近的历史周期反推错误 —— 已随 EXT-004 修复，见该条目末尾
 - [x] OPT-012 · P2 · 部分采样画不出时，曲线不说明缺了什么 —— 已修复（2026-09-21 追加，非原审查范围），见该条目末尾的「修复记录」
+- [x] OPT-013 · P2 · 浮点容差断言把 NaN 判为通过（第二轮审查，下同）—— 已修复
+- [x] OPT-014 · P2 · 请求计数按 Int32 读写 SQLite —— 已修复
+- [x] OPT-015 · P1 · sub2api / claude-code-hub 把缺失用量当成完整数据 —— 已修复（方案 A）
+- [x] OPT-016 · P2 · 未验证的陌生站点可直接保存；HTTP 200 的无关 JSON 被当成验证成功 —— 已修复
+- [x] OPT-017 · P2 · 「测试连接」在保存前就把 claude-code-hub 会话写进钥匙串 —— 已修复
+- [x] OPT-018 · P2 · 钥匙串读取失败被当成「缺少密钥」 —— 已修复
+- [x] OPT-019 · P3 · 不勾「存档」保存，能花钱的 key 成为界面上删不掉的孤儿 —— 已修复
+- [x] OPT-020 · P3 · 设置窗口关掉后草稿残留；测试在飞时改输入不能重测 —— 已修复
+- [ ] OPT-021 · P2 · A → B → A 快速切换时，旧 A 请求覆盖新 A 状态
+- [ ] OPT-022 · P3 · 通知等待授权期间切换账户或关闭通知，仍会发出旧通知
+- [ ] OPT-023 · P2 · 日历规则在夏令时跳时后终点漂移；亚秒级提前进入下一周期
+- [ ] OPT-024 · P2 · 缺桶后恢复，漏判计数器下降
+- [ ] OPT-025 · P3 · 学到的日重置时刻丢掉分钟，小幅冲正也被当成重置
+- [ ] OPT-026 · P3 · 限流窗口走退路时告警去重键每次都变
+- [ ] OPT-027 · P3 · 回退到 v3 再升级，给 v4 采样注入「幽灵桶」
+- [ ] OPT-028 · P3 · 界面零散缺陷（24h 轴、lastError、Picker 空白、金额单位）
+- [x] OPT-029 · P3 · 历史保留从未生效 —— 已修复（90 天，用户 2026-09-30 定）
+- [ ] OPT-030 · P3 · 文档与文案过时
 
 ## OPT-001：切换账户时，旧请求污染新账户历史
 
@@ -488,3 +506,287 @@ else                           → 「这段时间还没有采样」
 3. 处理 OPT-008 至 OPT-011，修复历史展示、刷新依赖和时间边界。
 
 完成单项后，补充对应验证结果，再勾选进度总览中的任务。
+
+---
+
+## 第二轮审查（2026-09-29 / 30）
+
+审查基线：`61f6821`（v2.2）。来源：外部全项目审查报告（10 项，均已对照当前代码逐条确认），加上本轮 App 层 / Core 层两路独立复查的新增项。格式沿用上面的条目。
+
+处理分批（按依赖排序）：① 测试可信与存储边界 → ② 历史数据正确性 → ③ 凭据与设置流程 → ④ 跨 `await` 身份 → ⑤ 日历、图表、告警边界 → ⑥ 界面与文档。
+
+## OPT-013：浮点容差断言把 NaN 判为通过
+
+- **优先级：** P2
+- **位置：** [TestSupport.swift:102](../Tests/CoreTests/TestSupport.swift#L102)
+- **证据：** 审查中编译原测试框架实测：`XCTAssertEqual(.nan, 0.5, accuracy:)` 与 `XCTAssertEqual(0.5, .nan, accuracy:)` 失败数均为 0。
+
+**问题与影响：** 断言写成 `guard abs(x - y) > accuracy else { return }`，NaN 参与的比较恒为 false，于是直接判通过。全套 78 处容差断言（额度比例、日期窗口、图表）都失去对 NaN 回归的防护，`QuotaTests` 里防除零那例正是要抓 NaN 的。
+
+**建议：** 按正向条件判成功（`x == y` 或 `abs(x - y) <= accuracy`），NaN 显式失败；为框架自身补有限数 / NaN / 无穷大的语义用例。
+
+**验收标准：** NaN 任一侧都报失败；相等的无穷大通过；现有 458 例仍全绿（若有转红，说明原本就被放过，逐条查清）。
+
+**修复记录（已完成，2026-09-30）**
+
+`TestSupport.swift` 的容差断言改成按成功条件判：`x == y || abs(x - y) <= accuracy` 才返回，其余一律报失败。`x == y` 那一支是给同号无穷大的 —— 它俩相减是 NaN，只靠容差会误判成不等。
+
+新增 `TestSupportTests.swift`，4 例测框架自身（容差内、容差外、NaN 任一侧和两侧、无穷大）。做法是照常调用断言，事后数它往失败列表里记了几条再摘掉，免得「期望它失败」被运行器当成用例本身失败。
+
+**原有 458 例在新断言下无一转红** —— 目前没有 NaN 被放过，这条修的是往后的防护。总数 458 → 462。
+
+**反向验证**：把断言改回旧写法 → `testAccuracyAssertionRejectsNaN` 变红；还原后全绿。
+
+## OPT-014：请求计数按 Int32 读写 SQLite
+
+- **优先级：** P2（低触发）
+- **位置：** [HistoryStore.swift:320](../Sources/Core/HistoryStore.swift#L320)，同类 380、401、424、511、521、592 行
+- **证据：** 审查中向临时库写 `requests = 2^31`，进程 fatal trap（不可被 catch）；两次聚合 `2^31−1 + 1` 读回 `-2147483648`。
+
+**问题与影响：** 模型与解码都是 64 位 `Int`，落库前强转 `Int32`。上游返回一个大数（或错误的大数）就能让整个 app 退出。
+
+**建议：** 统一 `sqlite3_bind_int64` / `sqlite3_column_int64`。
+
+**验收标准：** 2^31 的插入、日桶聚合、未归属聚合、重启后基线恢复都得到原值。
+
+**修复记录（已完成，2026-09-30）**
+
+`HistoryStore` 里请求数的三处写入改 `sqlite3_bind_int64`，四处读取改 `sqlite3_column_int64`（`sampleCount` 顺带一起改了）。`user_version` 那处本来就是 32 位的 pragma，不动。无需迁移：SQLite 的 INTEGER 列本来就按 64 位存，旧数据读出来不变。
+
+新增 `HistoryStoreTests.testRequestCountsBeyond32BitsRoundTrip`：2^31 的插入读回、两次日桶聚合到 2^31、未归属聚合、重开库后的 `lastSample`。总数 → 463。
+
+**反向验证**：换回旧文件 → 进程在这条用例上 `Fatal error: Not enough bits to represent the passed value` 直接退出，正是审查描述的那种不可捕获的崩溃；还原后全绿。
+
+## OPT-015：sub2api / claude-code-hub 把缺失用量当成完整数据
+
+- **优先级：** P1
+- **位置：** [Sub2APIProvider.swift:186](../Sources/Core/Sub2APIProvider.swift#L186)、[ClaudeCodeHubProvider.swift:274](../Sources/Core/ClaudeCodeHubProvider.swift#L274)、[HistoryWriter.swift:129](../Sources/Core/HistoryWriter.swift#L129)
+- **证据：** 审查中以真实解码 → `buildSnapshot` → `HistoryWriter` → 临时库复现：累计 `1000/100 → 缺失 → 1200/120`，当天记入 `1200 / 120`，正确应为 `200 / 20`。
+
+**问题与影响：** OPT-004 在新适配器里的回归，违反不变量 3。
+
+1. sub2api 只要有一条额度就 `hasCompleteUsage = true`；`usage.total` 缺失或为 null 时，`Sample.init` 把 nil 累计值退成 0 入库并推进基线，下一次恢复的累计值整段被记成增量，**永久**抬高当天用量。
+2. 两家都把「有上限、缺已用值」的额度解成 `used = 0`，显示为满额剩余并入库。
+
+**建议（方案 A，用户 2026-09-30 选定）：** 响应里本该有的累计值缺了，整份快照判为不完整、不入历史（和 Relay 的完整性闸门同一做法）；有上限而缺已用值的额度同样判为不完整。代价是那一次的额度曲线也少一个点 —— 可接受。方案 B（额度照常入库、累计基线单独判有效）需要把 `Sample` 的两列改成可选，暂不做。
+
+**验收标准：** 「正常 → 缺字段 / null → 恢复」序列当天只记真实增量；缺已用值的额度不以 0 入库。
+
+**修复记录（已完成，2026-09-30，方案 A）**
+
+两家的做法都向中转站的 `UserStats.hasCompleteUsage` 看齐：**可以显示，不能入库**。
+
+- **DTO 里的已用值一律改成可选**（sub2api 的 `Amount.used` / `RateWindow.used` / `Subscription.*Used`，CCH 的 `Layer.current*`）。缺了就是 nil，不在解码层补 0。按 0 显示是映射那一层的决定，并且会被记下来。
+- **sub2api**：`hasCompleteUsage` = 有额度，且每条有上限的额度都报了已用，且 `usage.total` 的 `total_tokens` 和 `requests` 都在。
+- **CCH**：`hasCompleteUsage` = 有额度，且每条有上限的额度都报了已用。这家本来就不报累计 token / 请求数（能力声明里没有），不算缺。上限为 null 的那一档本来就不出桶，它的已用缺不缺不影响完整性。
+- 快照不完整时，测试连接照旧会出现「响应缺少部分用量字段，这次的数字不会计入历史」这条提示（`ConnectionReport.Finding.incompleteUsage`，现成的）。
+
+新增测试 6 例（总数 → 469）：
+- sub2api：`1000 → 缺 → 1200` 序列经真实的 `HistoryWriter` 和临时库，当天记 200 / 20；null 累计值判为不完整；有上限、缺已用值（key 限额和订阅日额度各一例）判为不完整，且面板上显示 0；字段齐全的真实形状仍完整（防止靠「一律判不完整」蒙混过关）。
+- CCH：有上限、缺已用值判为不完整；不限的那一档缺已用值不影响完整性。
+
+**反向验证**：两个适配器换回旧文件 → 4 例变红，序列那例精确复现审查的 `1200 / 120`；还原后全绿。
+
+**未做（刻意）**：
+- **方案 B**（额度照常入库、累计基线单独判有效）。要把 `Sample` 的两列改成可选，是和阶段 2 同量级的改动，用户选了 A。代价：累计值偶尔缺一次时，那一次的额度曲线也少一个点。
+- **待实测确认的一点**：测试样本里「没用过的 key」那份响应（`quotaLimitedUnused`）没有 `usage` 块。如果真实的 sub2api 对某种形态**始终**不返回 `usage.total`，那个账户按现在的判定会一条历史都不落。样本注释说形状照抄实测，但那份明显是节选。下次开实验室时核对：新 key、用过的 key、订阅 key 三种形态是否都带 `usage.total`。
+
+## OPT-016：未验证的陌生站点可直接保存；HTTP 200 的无关 JSON 被当成验证成功
+
+- **优先级：** P2
+- **位置：** [SettingsWindow.swift:133](../Sources/App/SettingsWindow.swift#L133)、[Provider.swift:302](../Sources/Core/Provider.swift#L302)、[ClaudeCodeHubProvider.swift:342](../Sources/Core/ClaudeCodeHubProvider.swift#L342)、[Sub2APIProvider.swift:298](../Sources/Core/Sub2APIProvider.swift#L298)
+- **证据：** 审查中 `parse(site:key:)` 对陌生站返回 `claude-code-hub, siteMatchIsGuess = true`，`resolvedForSaving(report: nil)` 放行；向 CCH `verify` 注入 `200 {"error":{"message":"not found"}}` 得到成功报告。
+
+**问题与影响：** 两条要一起修 —— 只修后者，用户仍能不点测试直接保存。
+
+1. 陌生网址默认解析成排在前面的 CCH，身份由 key 哈希直接算出，所以无需测试即可保存。若真实服务是 sub2api，此后每次刷新都按 CCH 请求，永远失败。
+2. 两家 DTO 的所有协议字段都可缺失，任意 JSON 对象都解码成默认值；测试流程在第一家「成功」后就停，不再试下一家。
+
+**建议：** 「身份已知」和「协议已确认」分开：`siteMatchIsGuess` 的连接必须持有匹配当前输入的成功验证才能保存。两家解码要求最低限度的协议特征字段，缺则按「不是这个协议」报错。
+
+**验收标准：** 陌生站点未测试 / 测试失败时保存按钮不可用；无关 JSON 与空对象被拒，且测试会继续尝试下一家。
+
+**修复记录（已完成，2026-09-30）**
+
+- **保存门**：`ProviderRegistry.resolvedForSaving` 对 `siteMatchIsGuess` 的适配器多一道门：必须带着**同一家**的成功报告才放行。设置窗口本来就在输入改变时清掉报告和已验证连接，所以「同一家」加上「输入没变」就等于「这个连接验过」。专门认得的站点（中转站统计页）不受影响，照旧解析出来就能存。
+- **保存按钮灰着的理由分开说**：新增 `setupMustTestGuess`（「未识别的站点要先测试连接，确认它跑的是哪种软件才能保存」），原来那句「这家的账户标识在响应里」只对 tu-zi 成立。
+- **协议特征**：新增 `ProtocolMismatchError`，报给用户的是 `errNotThisProtocolFormat`（「响应不是 X 的格式」）。
+  - CCH 要求 `userIsEnabled` 和 `keyIsEnabled` 都在。每份响应都有，而且「能不能用」就靠它俩判断；从前缺了会被解成「账户停用」。
+  - sub2api 要求有效标记（`isValid` 或 `status`），并且至少有一种额度块（`quota` / `rate_limits` / `subscription` / `balance`）。实测的四种形状都满足。
+  - 测试流程本来就是「抛错就试下一家」，不用改。
+
+新增 4 例（总数 → 475）：陌生站点未验证 / 验了别家时不能存、验了同一家能存；中转站网址仍免验证；sub2api 拒无关 JSON、空对象和只有 `isValid` 的对象，且四种真实形状都认；CCH `verify` 对每个请求都回 `200 {"error":…}` 或 `{}` 时报错。
+
+**反向验证**：去掉保存门、去掉两处协议特征 → 3 例变红；还原后全绿。
+
+**验证缺口**：保存按钮和提示行的实际表现没有实机点过，只过了全量 typecheck。
+
+## OPT-017：「测试连接」在保存前就把 claude-code-hub 会话写进钥匙串
+
+- **优先级：** P2
+- **位置：** [ClaudeCodeHubProvider.swift:148](../Sources/Core/ClaudeCodeHubProvider.swift#L148)、[Config.swift:292](../Sources/App/Config.swift#L292)
+- **证据：** 静态调用链（未操作真实钥匙串）。
+
+**问题与影响：** 设置页用正式适配器验证，而启动时全局会话存储已换成钥匙串实现。登录换到令牌后立刻落盘，发生在额度请求和解码之前。取消、改输入、验证失败都会留下一份可代表用户身份 7 天的凭据；没存档的账户在界面上删不掉。与 README「测试连接什么都不保存」直接冲突。
+
+**建议：** 测试用独立的内存会话存储；保存成功后把会话移交给正式存储，否则丢弃。已保存账户的复用策略不变。
+
+**验收标准：** 测试成功但不保存、登录成功但额度失败，两种情况钥匙串里都没有会话；测试后保存，会话被接管，刷新不必重新登录。
+
+**修复记录（已完成，2026-09-30）**
+
+- 适配器协议新增 `sessionScoped(to:)`：返回一个会话只进给定存储的同一适配器。默认实现返回自己，CCH 覆写成带注入存储的新实例。通用层对谁都这么调，不必认识哪家要会话（不变量 6）。
+- 设置窗口持有一份 `InMemorySessionTokenStore`（`probeSessions`），测试一律走 `sessionScoped(to: probeSessions)`。输入一变就换一份新的，旧的随之丢掉。
+- 保存时，`applyAccount` **成功之后**才把这份会话移交给 `SessionTokens.store`（App 里是钥匙串）。钥匙串写密钥失败时不留会话。移交后第一次刷新直接复用，不会多登录一次。
+
+新增 2 例（总数 → 477）：限定存储的 `verify` 把会话只写进临时存储，全局存储里没有；不用会话的适配器 `sessionScoped` 原样返回自己。
+
+**反向验证**：CCH 的 `sessionScoped` 改成返回 `self` → 第一例变红；还原后全绿。
+
+**未做**：没加 App 层的集成测试（设置窗口没有测试入口）。「取消不保存 → 钥匙串无残留」由「测试只写临时存储」这一条保证，没有真实钥匙串验证。
+
+## OPT-018：钥匙串读取失败被当成「缺少密钥」
+
+- **优先级：** P2
+- **位置：** [Config.swift:245](../Sources/App/Config.swift#L245)、[Config.swift:289](../Sources/App/Config.swift#L289)
+- **证据：** 静态核对（本轮 App 层复查）。
+
+**问题与影响：** 两处都是 `try?`。重建后读旧条目会弹授权框（见项目须知「钥匙串可用」）；用户拒绝、只允许一次或钥匙串锁定时，面板提示「缺少密钥，请重新填写」—— 方向是错的，而且每轮刷新都会再弹一次。
+
+**建议：** 区分「条目不存在」与其他错误，后者如实报出钥匙串的原因。钥匙串错误文案（目前写死中文，[KeychainStore.swift:32](../Sources/App/KeychainStore.swift#L32)）一并改走 L10n。
+
+**验收标准：** 条目不存在时仍是「缺少密钥」；其他错误显示钥匙串原因，三语。
+
+**修复记录（已完成，2026-09-30）**
+
+- `Config.connection(for:)` 改成 `throws`，读密钥不再 `try?`。条目不存在时 `KeychainStore.get` 本来就返回 nil，仍由适配器报「缺少密钥」；其余失败原样抛出，刷新流程的 `catch` 把钥匙串给的原因显示在面板上。
+- `KeychainError` 的三段文案改走 L10n（`errKeychainFormat` / `errKeychainUnknownReason` / `errKeychainMalformed`），语言取 `Config.language`（非 MainActor 也能读）。
+
+**未做**：
+- **被拒之后仍会在下个刷新周期再弹授权框。** 要彻底消掉得记住「这个账户被拒过」并暂停自动重读，要多一份状态和一个恢复入口。现在至少说对了原因，用户知道该去点「始终允许」。重复弹框若实机里仍烦人，再做。
+- 会话令牌的读取（`KeychainSessionTokenStore.token`）仍是 `try?`：读不到时退回用 key 重新登录，功能不受影响，只是多登录一次。
+- 没有自动化测试：`Config` 和钥匙串都在 App 层。全量 typecheck 通过。
+
+## OPT-019：不勾「存档」保存，能花钱的 key 成为界面上删不掉的孤儿
+
+- **优先级：** P3
+- **位置：** [SettingsWindow.swift:478](../Sources/App/SettingsWindow.swift#L478)、[Config.swift:181](../Sources/App/Config.swift#L181)
+- **问题与影响：** `apply` 总是把密钥写进钥匙串，而删除入口只在存档列表里。换到别的账户后，旧账户的 key（和 CCH 会话）再也够不着。
+- **建议：** 切走一个**不在存档里**的带密钥账户时，清掉它的密钥和会话。
+- **验收标准：** 未存档账户被切走后钥匙串里不留它的条目；存档账户不受影响。
+
+**修复记录（已完成，2026-09-30，用户选「切走即清」）**
+
+`UsageService.accountDidSwitch` 改成接收切换前的账户。账户确实变了、旧账户已配置、又不在存档里，就 `Config.removeCredential(for:)`（密钥 + 会话一起删，不带密钥的那家直接算成功）。`applyAccount` 和 `selectAccount` 共用这一段（不变量 5）。删失败不拦切换 —— 最坏也就是回到修之前的样子。
+
+注意时序：`save()` 是先 `applyAccount`、后存档**新**账户，被判断的是旧账户，不受影响。
+
+**已知代价**：EXT-010 之前就配好、一直没进过存档的账户，一旦被切走，key 就删了，要用得重新粘。这符合「不存档就是一次性配置」的口径。
+
+**验证缺口**：App 层，没有自动化测试；全量 typecheck 通过。
+
+## OPT-020：设置窗口关掉后草稿残留；测试在飞时改输入不能重测
+
+- **优先级：** P3
+- **位置：** [SettingsWindow.swift:20](../Sources/App/SettingsWindow.swift#L20)、[SettingsWindow.swift:199](../Sources/App/SettingsWindow.swift#L199)
+- **问题与影响：** 窗口只 `orderOut`，`@State` 留着：没保存就关窗，再打开时明文 key 和旧测试结果还在，与注释「每次打开都是空的」不符；存档行改了名没回车，再打开看起来像已改。测试按钮在 `probe.isBusy` 时一直灰着，而旧测试最长可能要几十秒。
+- **建议：** 每次打开重建视图；测试按钮只在「在飞的正是当前这段输入」时禁用。
+
+**修复记录（已完成，2026-09-30）**
+
+- `SettingsWindow.show()`：窗口已存在但不可见时，换一个新的 `NSHostingController(rootView: SettingsView())`。开着的时候再点一次不重建，免得冲掉正在填的内容。
+- 测试按钮改成 `.disabled(resolved == nil || probe.token == probeKey)`。旧测试回来时过不了提交前的 `probeKey == probed` 校验，它的 `finish` 也按 token 核对，不会清掉新测试的在飞标记（`InFlightGate` 的约定）。
+
+**验证缺口**：纯界面改动，没有自动化验收，只过了全量 typecheck。需要实机确认：关窗再开是空的；存档行改名不回车、关窗再开显示原名；陌生网址测试中改 key 能立刻重测。
+
+## OPT-021：A → B → A 快速切换时，旧 A 请求覆盖新 A 状态
+
+- **优先级：** P2
+- **位置：** [UsageService.swift:188](../Sources/App/UsageService.swift#L188)、[InFlightGate.swift:38](../Sources/Core/InFlightGate.swift#L38)
+- **证据：** 审查中直接运行 gate 复现：A / B / A 三次都准入，旧 A 收尾后门被清空。
+
+**问题与影响：** 提交只比账户，旧 A 的结果（成功或失败）照样提交，可能以旧快照覆盖新快照、写入过时采样；旧 A 的 `finish` 还会清掉新 A 的在飞标记。
+
+**建议：** 每次刷新一个唯一编号，提交与收尾都按编号核对。
+
+**验收标准：** A1 / B / A2 且两次 A 乱序结束，只有 A2 提交；A1 收尾不释放 A2 的门。
+
+## OPT-022：通知等待授权期间切换账户或关闭通知，仍会发出旧通知
+
+- **优先级：** P3（已授权时 `notificationSettings()` 几乎立即返回，实际窗口主要是首次弹授权框那一次）
+- **位置：** [Notifier.swift:69](../Sources/App/Notifier.swift#L69)
+- **建议：** 每次 `add` 前重验账本命名空间和通知开关；不通过就放弃并释放占位。通知 identifier 目前不含账户（[Notifier.swift:146](../Sources/App/Notifier.swift#L146)），两个账户同周期的通知会互相替换 —— 顺手改成带命名空间的键。
+
+## OPT-023：日历规则在夏令时跳时后终点漂移；亚秒级提前进入下一周期
+
+- **优先级：** P2
+- **位置：** [ResetPolicy.swift:187](../Sources/Core/ResetPolicy.swift#L187)
+- **证据：** 审查中 CCH 固定 `02:30`、`America/New_York` 复现：3/8 周期算成 `03:00 → 3/9 03:00`，而 3/9 02:30 已是新周期，重叠 30 分钟。`23:59:59.5` 查每日零点规则返回次日周期，`contains(now) == false`。
+
+**建议：** 终点也按同一条日历规则向前找下一次匹配，而不是「起点 + 一天」；起点算出来晚于 moment 时再往回退一次。
+
+**验收标准：** 相邻周期 `old.end == next.start`（含跳时日）；任何 moment 都落在自己返回的周期内。
+
+## OPT-024：缺桶后恢复，漏判计数器下降，实线跨过重置
+
+- **优先级：** P2
+- **位置：** [ChartSeries.swift:215](../Sources/Core/ChartSeries.swift#L215)
+- **问题与影响：** 重置判断只看紧邻的前一条；中间一条没有该桶，恢复时 `80 → 缺 → 5` 的下降证据被丢掉，画成从 20% 到 95% 的连续实线。
+- **建议：** 按桶记住上一条有该桶的读数，恢复后低于它就断开。**不**把缺失本身当重置（OPT-012 的既定口径不变）。
+
+## OPT-025：学到的日重置时刻丢掉分钟，小幅冲正也被当成重置
+
+- **优先级：** P3
+- **位置：** [ResetSchedule.swift:167](../Sources/Core/ResetSchedule.swift#L167)
+- **问题与影响：** `observe` 只取小时，而规则被标成「已观测」。半小时时区（Asia/Kolkata）下 UTC 0 点重置被学成 05:00，比实际早 30 分钟，那半小时显示吃紧 / 超速，其间的低额度告警还会占掉当天的去重键。另外任何下降（`3.20 → 3.19`）都算重置。
+- **建议：** 观测与学到的结论都带分钟；下降判据要求降到接近 0 或降幅占前值的大比例。
+
+## OPT-026：中转站限流窗口走「剩余秒数」退路时，告警去重键每次都变
+
+- **优先级：** P3
+- **位置：** [ResetSchedule.swift:64](../Sources/Core/ResetSchedule.swift#L64)、[AlertPolicy.swift:53](../Sources/Core/AlertPolicy.swift#L53)
+- **证据：** 本轮 Core 复查实测 5 次刷新得到 4 个不同的键。实测响应都带起止时间戳，只有退路受影响。
+- **建议：** 退路算出的起点对齐到分钟。
+
+## OPT-027：回退到 v3 再升级，给 v4 采样注入「幽灵桶」
+
+- **优先级：** P3
+- **位置：** [HistoryStore.swift:216](../Sources/Core/HistoryStore.swift#L216)
+- **问题与影响：** v3 打开库时无条件写回 `user_version = 3`；再升级时把全部 samples 重新展开，给已有 `quota_samples` 的采样多出 `total / weeklyOpus / window` 三行 `used = 0`，非中转站账户的额度选择器里冒出假额度，中转站账户画出假重置。
+- **建议：** 展开时跳过已有 `quota_samples` 行的采样；迁移放进事务。
+
+## OPT-028：界面零散缺陷
+
+- **优先级：** P3
+- 历史窗口选「24 小时」时 X 轴只标月/日（[HistoryCharts.swift:160](../Sources/App/HistoryCharts.swift#L160)、`:247`）。
+- `HistoryRecorder.lastError` / `Notifier.lastError` 只写不读：库打不开时界面只说「还没有采样」。
+- 「菜单栏显示」Picker 选中值可能没有对应选项（默认 `fixed("daily")` 在 sub2api / CCH 下不存在），下拉显示空白。
+- 面板金额写死 `Fmt.money2`（[PopoverView.swift:76](../Sources/App/PopoverView.swift#L76)），没按额度的单位排版；目前四家都是 USD，属潜伏缺陷。
+
+## OPT-029：历史保留从未生效（待用户决定保留期）
+
+- **优先级：** P3
+- **位置：** [HistoryStore.swift:530](../Sources/Core/HistoryStore.swift#L530)
+- **问题与影响：** `pruneSamples` 只有测试在调，App 没接。采样与额度行无限增长（估算一年约 50 万 / 200 万行）。
+- **待决：** 永久保留，还是 90 天 / 1 年？定了再接。
+
+**修复记录（已完成，2026-09-30，保留 90 天）**
+
+Core 新增 `HistoryRetention`（在 `HistoryWriter.swift`）：到期才清，一天最多一次，清掉 90 天前的 `samples` 和 `quota_samples`。**按天的 token 桶和未归属增量不清**：一天一行，它们是柱状图的全部来源。
+
+`HistoryRecorder` 在每次写入成功**之后**调用它。此时库里最新的就是刚写的那条，清理碰不到写入器的基线。换账户时 `reset()`，新分区下一次写入就清一次。各账户只在被使用时清自己的分区，从没切回去的账户不会被清。
+
+新增 2 例（总数 → 471）：只清 90 天前的采样、日桶保留；一天内不重复清、`reset` 后立刻可清。
+
+**反向验证**：去掉 `pruneIfDue` 里的删除 → 第一例变红；还原后全绿。
+
+**未做**：清理后不 `VACUUM`。SQLite 会复用释放的页，文件不会再长；已经长大的文件不缩小。
+
+## OPT-030：文档与文案过时
+
+- **优先级：** P3
+- 双语 README 隐私 FAQ 只列 tu-zi key，缺 sub2api / CCH key 与 CCH 会话；设置截图、面板截图是旧版。
+- 首次配置引导（`Localization.swift:339`）仍教填中转站用量 URL；安全提示「不会上传」表述过强。
+- tu-zi / CCH 根本不报累计 token，历史空态却说「两次刷新后出现」。
+- `project-notes` 对 XCTest 的描述不对（默认 `continueAfterFailure = true`，前一条失败不会中止）；两份 backlog 开头 / 末尾的旧总结与现状矛盾；「最后一个未验证标记」表述过强。
+- README 的 pace 负值说明省略了「按当前平均速度」这个前提。

@@ -129,11 +129,20 @@ extension Sub2APIProvider {
     public func buildSnapshot(_ usage: Sub2APIUsage, now: Date) -> Snapshot {
         var gauges: [QuotaBucket] = []
 
+        /// 有上限、却没报已用的那几条(OPT-015)。面板上照旧按 0 显示 —— 和中转站的
+        /// `UserStats.hasCompleteUsage` 同一个做法 —— 但这份快照不能进历史:
+        /// 0 和「不知道」在库里是两件事,会变成一次假归零和一段假增量
+        var missingUsed = false
+        func used(_ reported: Double?) -> Double {
+            if reported == nil { missingUsed = true }
+            return reported ?? 0
+        }
+
         // ── key 自带限额 ──
         // 总额没有周期,只作为一条额度显示,不参与 pace
         if let quota = usage.quota, quota.limit > 0 {
             gauges.append(QuotaBucket(id: "total", title: .localized(.quotaTotal),
-                                      used: quota.used, limit: quota.limit,
+                                      used: used(quota.used), limit: quota.limit,
                                       unit: .money(currency: "USD"), window: nil, rule: nil))
         }
         for w in usage.rateLimits where w.limit > 0 {
@@ -143,7 +152,7 @@ extension Sub2APIProvider {
                 w.resetAt.map { ResetRule(.serverProvided(start: start, end: $0), provenance: .server) }
             }
             gauges.append(QuotaBucket(id: "window_\(w.window)", title: Self.title(forWindow: w.window),
-                                      used: w.used, limit: w.limit, unit: .money(currency: "USD"),
+                                      used: used(w.used), limit: w.limit, unit: .money(currency: "USD"),
                                       window: rule?.period(containing: now), rule: rule))
         }
 
@@ -160,15 +169,15 @@ extension Sub2APIProvider {
                 ResetRule(.fixedDuration(anchor: $0, seconds: 7 * 86_400), provenance: .configured)
             }
             // 月:30×24h 滚动,但响应**没有月窗起点**,推不出何时重置 —— 只显示用量,不给 pace
-            let periods: [(String, LangKey, Double?, Double, ResetRule?)] = [
+            let periods: [(String, LangKey, Double?, Double?, ResetRule?)] = [
                 ("daily", .quotaDaily, s.dailyLimit, s.dailyUsed, daily),
                 ("weekly", .quotaSevenDays, s.weeklyLimit, s.weeklyUsed, weekly),
                 ("monthly", .quotaThirtyDays, s.monthlyLimit, s.monthlyUsed, nil),
             ]
             // 上限为 null 表示这一档不限 —— 不产出桶,而不是产出一个「不限」的桶
-            for (id, title, limit, used, rule) in periods {
+            for (id, title, limit, reportedUsed, rule) in periods {
                 guard let limit, limit > 0 else { continue }
-                gauges.append(QuotaBucket(id: id, title: .localized(title), used: used, limit: limit,
+                gauges.append(QuotaBucket(id: id, title: .localized(title), used: used(reportedUsed), limit: limit,
                                           unit: .money(currency: "USD"),
                                           window: rule?.period(containing: now), rule: rule))
             }
@@ -184,7 +193,11 @@ extension Sub2APIProvider {
             monthlyCost: nil,
             monthlyRequests: nil,
             fetchedAt: now,
-            hasCompleteUsage: !gauges.isEmpty
+            // 三件事都要齐才算完整(OPT-015)。累计值尤其要紧:它缺一次,`Sample` 就把它
+            // 退成 0 落库并推进基线,下一次恢复的累计值会整段被记成当天的新增 ——
+            // 实测 `1000 → 缺 → 1200` 当天记了 1200 而不是 200,而且永久记在那里
+            hasCompleteUsage: !gauges.isEmpty && !missingUsed
+                && usage.totalTokens != nil && usage.totalRequests != nil
         )
     }
 
@@ -226,15 +239,16 @@ public struct Sub2APIUsage: Equatable {
         quota == nil && rateLimits.isEmpty && subscription == nil && balance != nil
     }
 
+    /// 已用值一律可选:缺了就是 nil,不是 0(不变量 3、OPT-015)。按 0 显示是映射那一层的决定
     public struct Amount: Equatable {
         public var limit = 0.0
-        public var used = 0.0
+        public var used: Double?
     }
 
     public struct RateWindow: Equatable {
         public var window = ""
         public var limit = 0.0
-        public var used = 0.0
+        public var used: Double?
         public var start: Date?
         public var resetAt: Date?
         /// 原样的起点字符串,只为读出服务端时区
@@ -243,11 +257,11 @@ public struct Sub2APIUsage: Equatable {
 
     public struct Subscription: Equatable {
         public var dailyLimit: Double?
-        public var dailyUsed = 0.0
+        public var dailyUsed: Double?
         public var weeklyLimit: Double?
-        public var weeklyUsed = 0.0
+        public var weeklyUsed: Double?
         public var monthlyLimit: Double?
-        public var monthlyUsed = 0.0
+        public var monthlyUsed: Double?
         public var weeklyWindowStart: Date?
         /// 原样的时间字符串,只为读出服务端时区
         var weeklyWindowStartText: String?
@@ -265,6 +279,8 @@ extension Sub2APIUsage {
             return try JSONDecoder().decode(Sub2APIUsage.self, from: data)
         } catch let invalid as InvalidFieldError {
             throw APIError(L10n.format(.errInvalidFieldFormat, language, invalid.field))
+        } catch is ProtocolMismatchError {
+            throw APIError(L10n.format(.errNotThisProtocolFormat, language, "sub2api"))
         } catch {
             throw APIError(L10n.text(.errUnparsable, language))
         }
@@ -298,6 +314,13 @@ extension Sub2APIUsage: Decodable {
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
 
+        // 协议特征(OPT-016):有效标记(`isValid`,或 `quota_limited` 模式的 `status`)
+        // 加上三种形态之一的额度块。实测的三种形态都满足;反代的错误 JSON、空对象都不满足
+        let reportsValidity = try c.present(.isValid) || c.present(.status)
+        let reportsAnyQuota = try c.present(.quota) || c.present(.rateLimits)
+            || c.present(.subscription) || c.present(.balance)
+        guard reportsValidity, reportsAnyQuota else { throw ProtocolMismatchError() }
+
         planName = try c.text(.planName) ?? ""
         // `quota_limited` 模式报 status,另两种只报 isValid
         isActive = try c.flag(.isValid) ?? (try c.text(.status) == "active")
@@ -328,7 +351,7 @@ extension Sub2APIUsage.Amount: Decodable {
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         limit = try c.number(.limit) ?? 0
-        used = try c.number(.used) ?? 0
+        used = try c.number(.used)
     }
 }
 
@@ -341,7 +364,7 @@ extension Sub2APIUsage.RateWindow: Decodable {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         window = try c.text(.window) ?? ""
         limit = try c.number(.limit) ?? 0
-        used = try c.number(.used) ?? 0
+        used = try c.number(.used)
         startText = try c.text(.windowStart)
         // 时间格式和 tu-zi 一样(带微秒和偏移),共用同一个解析器
         start = TuziDate.parse(startText)
@@ -359,11 +382,11 @@ extension Sub2APIUsage.Subscription: Decodable {
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         dailyLimit = try c.number(.dailyLimit)
-        dailyUsed = try c.number(.dailyUsed) ?? 0
+        dailyUsed = try c.number(.dailyUsed)
         weeklyLimit = try c.number(.weeklyLimit)
-        weeklyUsed = try c.number(.weeklyUsed) ?? 0
+        weeklyUsed = try c.number(.weeklyUsed)
         monthlyLimit = try c.number(.monthlyLimit)
-        monthlyUsed = try c.number(.monthlyUsed) ?? 0
+        monthlyUsed = try c.number(.monthlyUsed)
         weeklyWindowStartText = try c.text(.weeklyWindowStart)
         weeklyWindowStart = TuziDate.parse(weeklyWindowStartText)
         expiresAtText = try c.text(.expiresAt)

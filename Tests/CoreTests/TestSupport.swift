@@ -100,7 +100,10 @@ func XCTAssertEqual<T: FloatingPoint>(_ a: @autoclosure () throws -> T,
                                       file: StaticString = #filePath, line: UInt = #line) {
     do {
         let (x, y) = (try a(), try b())
-        guard abs(x - y) > accuracy else { return }
+        // 按**成功条件**正着判,不按失败条件反着判(OPT-013):NaN 和任何数比较都是 false,
+        // 从前写成 `guard abs(x - y) > accuracy else { return }`,NaN 于是一路判成通过 ——
+        // 防除零那几条用例要抓的正是 NaN。`x == y` 那一支是给两个同号无穷大的:它俩相减也是 NaN
+        if x == y || abs(x - y) <= accuracy { return }
         TinyTest.fail("期望 \(x) ≈ \(y)(容差 \(accuracy))\(suffix(message()))", file: file, line: line)
     } catch {
         TinyTest.fail("求值时抛出错误:\(error)", file: file, line: line)

@@ -210,6 +210,16 @@ public protocol UsageProviderAdapter {
     /// 测试连接。默认实现跑一次真实抓取再据其结果生成报告;
     /// 身份来自响应的适配器覆写它,好在同一次请求里把账户标识一并带出来。
     func verify(_ connection: Connection, language: Language) async throws -> ConnectionReport
+
+    /// 同一个适配器,但登录会话只存进给定的这个存储(OPT-017)。
+    ///
+    /// 给「测试连接」用:测试时还没决定保存,换来的会话不该落进钥匙串 ——
+    /// 用户取消、改了输入、或者后面的请求失败了,那份能代表账户 7 天的凭据就成了
+    /// 界面上删不掉的孤儿,也违背 README「测试连接什么都不保存」。保存成功后
+    /// 由调用方把会话移交给 `SessionTokens.store`。
+    ///
+    /// 不用会话的适配器原样返回自己。通用层因此不必知道哪家要会话(不变量 6)。
+    func sessionScoped(to store: SessionTokenStore) -> UsageProviderAdapter
 }
 
 public extension UsageProviderAdapter {
@@ -228,6 +238,8 @@ public extension UsageProviderAdapter {
     func parseConnection(site: URLComponents, key: String) -> Connection? { nil }
 
     var siteMatchIsGuess: Bool { false }
+
+    func sessionScoped(to store: SessionTokenStore) -> UsageProviderAdapter { self }
 }
 
 // MARK: - 注册表
@@ -302,6 +314,15 @@ public enum ProviderRegistry {
     public static func resolvedForSaving(_ connection: Connection,
                                          report: ConnectionReport?) -> Connection? {
         let adapter = adapter(for: connection.account)
+
+        // 陌生网址是**猜**的(OPT-016):解析只是按注册表顺序排了第一家,身份虽然
+        // 由 key 哈希当场算得出,协议对不对却只有真请求跑通才知道。不查就放行的话,
+        // 一个 sub2api 站会被存成 claude-code-hub,此后每次刷新都走错接口。
+        // 「身份已知」和「协议已确认」是两件事 —— 这里要的是后者
+        if adapter.siteMatchIsGuess {
+            guard let report, report.providerID == connection.account.providerID else { return nil }
+        }
+
         guard adapter.accountIDComesFromResponse else { return connection }
 
         // 报告得是**这次这个连接**的:换过供应商之后留在界面上的旧报告不算数

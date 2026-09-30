@@ -317,7 +317,9 @@ public final class HistoryStore {
         sqlite3_bind_text(stmt, 1, accountKey, -1, SQLITE_TRANSIENT)
         sqlite3_bind_double(stmt, 2, timestamp)
         sqlite3_bind_double(stmt, 3, sample.allTokens)
-        sqlite3_bind_int(stmt, 4, Int32(sample.requests))
+        // 请求数一律走 64 位(OPT-014):模型和解码都是 Int,中途强转 Int32 遇到 2^31
+        // 会直接 trap —— catch 接不住,上游一个错误的大数就能让整个 app 退出
+        sqlite3_bind_int64(stmt, 4, Int64(sample.requests))
         try step(stmt)
 
         // 先清干净再写:重写同一时刻的采样时,上一次多出来的桶不能留在库里
@@ -377,7 +379,7 @@ public final class HistoryStore {
         sqlite3_bind_text(stmt, 1, accountKey, -1, SQLITE_TRANSIENT)
         sqlite3_bind_text(stmt, 2, day, -1, SQLITE_TRANSIENT)
         sqlite3_bind_double(stmt, 3, tokens)
-        sqlite3_bind_int(stmt, 4, Int32(requests))
+        sqlite3_bind_int64(stmt, 4, Int64(requests))
 
         try step(stmt)
     }
@@ -398,7 +400,7 @@ public final class HistoryStore {
         sqlite3_bind_double(stmt, 2, from.timeIntervalSince1970)
         sqlite3_bind_double(stmt, 3, to.timeIntervalSince1970)
         sqlite3_bind_double(stmt, 4, tokens)
-        sqlite3_bind_int(stmt, 5, Int32(requests))
+        sqlite3_bind_int64(stmt, 5, Int64(requests))
 
         try step(stmt)
     }
@@ -421,7 +423,7 @@ public final class HistoryStore {
         sqlite3_bind_double(stmt, 3, to.timeIntervalSince1970)
 
         guard sqlite3_step(stmt) == SQLITE_ROW else { return (0, 0) }
-        return (sqlite3_column_double(stmt, 0), Int(sqlite3_column_int(stmt, 1)))
+        return (sqlite3_column_double(stmt, 0), Int(sqlite3_column_int64(stmt, 1)))
     }
 
     /// 一条采样要横跨两张表,所以取数都走同一条 LEFT JOIN。
@@ -508,7 +510,7 @@ public final class HistoryStore {
             let day = String(cString: sqlite3_column_text(stmt, 0))
             result.append(TokenDay(day: day,
                                    tokens: sqlite3_column_double(stmt, 1),
-                                   requests: Int(sqlite3_column_int(stmt, 2))))
+                                   requests: Int(sqlite3_column_int64(stmt, 2))))
         }
         return result
     }
@@ -518,7 +520,7 @@ public final class HistoryStore {
         defer { sqlite3_finalize(stmt) }
         sqlite3_bind_text(stmt, 1, accountKey, -1, SQLITE_TRANSIENT)
         guard sqlite3_step(stmt) == SQLITE_ROW else { return 0 }
-        return Int(sqlite3_column_int(stmt, 0))
+        return Int(sqlite3_column_int64(stmt, 0))
     }
 
     // MARK: - 保留策略
@@ -589,7 +591,7 @@ public final class HistoryStore {
                 flush()
                 timestamp = ts
                 allTokens = sqlite3_column_double(stmt, 1)
-                requests = Int(sqlite3_column_int(stmt, 2))
+                requests = Int(sqlite3_column_int64(stmt, 2))
                 quotas = [:]
             }
 

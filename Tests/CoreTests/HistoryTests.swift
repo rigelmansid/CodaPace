@@ -521,6 +521,29 @@ final class HistoryStoreTests: XCTestCase {
         try! store.transaction { try store.insert(sample(minutes: 0, daily: 1)) }
         XCTAssertEqual(try! store.sampleCount(), 1)
     }
+
+    /// 请求数超过 32 位(OPT-014)。从前落库前强转 Int32:单条 2^31 直接 trap 让进程退出,
+    /// 两次聚合到 2^31 读回负数。插入、日桶聚合、未归属聚合、重开库之后的基线都要是原值
+    func testRequestCountsBeyond32BitsRoundTrip() {
+        let url = storeURL()
+        let big = Int(Int32.max) + 1
+        let store = try! HistoryStore(path: url, accountKey: "key-a")
+
+        try! store.insert(Sample(at: base, allTokens: 1, requests: big))
+        XCTAssertEqual(try! store.lastSample()?.requests, big)
+
+        try! store.addTokenDelta(day: "2026-09-30", tokens: 1, requests: Int(Int32.max))
+        try! store.addTokenDelta(day: "2026-09-30", tokens: 1, requests: 1)
+        XCTAssertEqual(try! store.tokenDays(from: "2026-09-30", to: "2026-09-30").first?.requests, big)
+
+        try! store.addUnattributed(from: base, to: base.addingTimeInterval(60), tokens: 1, requests: big)
+        XCTAssertEqual(try! store.unattributedTotal(from: base.addingTimeInterval(-60),
+                                                    to: base.addingTimeInterval(120)).requests, big)
+
+        // 重启:写入器从库里补基线,读回的必须还是那个数
+        let reopened = try! HistoryStore(path: url, accountKey: "key-a")
+        XCTAssertEqual(try! reopened.lastSample()?.requests, big)
+    }
 }
 
 // MARK: - 落盘编排
@@ -646,6 +669,41 @@ final class IncompleteResponseTests: XCTestCase {
             previous: (value: 42, at: base),
             current: (value: 0, at: base.addingTimeInterval(300)),
             timeZone: .current))
+    }
+}
+
+final class HistoryRetentionTests: XCTestCase {
+
+    /// 本条的起因(OPT-029):清理从没接上。到期时只清 90 天前的采样,
+    /// 按天的 token 桶不动 —— 它们是柱状图的全部来源
+    func testOldSamplesArePrunedButDailyTotalsAreKept() {
+        let store = tempStore()
+        let now = base
+        try! store.insert(Sample(at: now.addingTimeInterval(-91 * 86_400),
+                                 quotas: ["daily": QuotaReading(used: 1, limit: 10)]))
+        try! store.insert(Sample(at: now.addingTimeInterval(-89 * 86_400),
+                                 quotas: ["daily": QuotaReading(used: 2, limit: 10)]))
+        try! store.addTokenDelta(day: "2020-01-01", tokens: 5, requests: 1)
+
+        var retention = HistoryRetention()
+        XCTAssertTrue(try! retention.pruneIfDue(store, now: now))
+
+        let left = try! store.samples(from: now.addingTimeInterval(-200 * 86_400), to: now)
+        XCTAssertEqual(left.map(\.at), [now.addingTimeInterval(-89 * 86_400)])
+        XCTAssertEqual(try! store.tokenDays(from: "2020-01-01", to: "2020-01-01").first?.tokens, 5)
+    }
+
+    /// 一天最多清一次;换账户后新分区立刻可以清
+    func testPruningRunsAtMostOncePerDayUntilReset() {
+        let store = tempStore()
+        var retention = HistoryRetention()
+
+        XCTAssertTrue(try! retention.pruneIfDue(store, now: base))
+        XCTAssertFalse(try! retention.pruneIfDue(store, now: base.addingTimeInterval(23 * 3600)))
+        XCTAssertTrue(try! retention.pruneIfDue(store, now: base.addingTimeInterval(24 * 3600)))
+
+        retention.reset()
+        XCTAssertTrue(try! retention.pruneIfDue(store, now: base.addingTimeInterval(24 * 3600 + 60)))
     }
 }
 

@@ -63,7 +63,7 @@ ad-hoc 签名、没有 provisioning profile 的 app **能用钥匙串**，写、
 ## 命令
 
 ```bash
-swift run CoreTests    # 458 例，应全绿。改 Core 或测试后必跑
+swift run CoreTests    # 477 例，应全绿。改 Core 或测试后必跑
 ./build.sh             # 构建 build/CodaPace.app（ad-hoc 签名）
 ```
 
@@ -471,7 +471,7 @@ EXT-001 阶段 2 的 v3 → v4 迁移**不丢任何历史**（四个固定列原
 
 | 项目 | 结果 |
 |---|---|
-| `swift run CoreTests` | **458 通过 · 0 失败** |
+| `swift run CoreTests` | **477 通过 · 0 失败** |
 | UI 全量类型检查 | **通过，无输出**，约 5 秒 |
 | 供应商隔离核查（上文命令） | **干净，无命中** |
 | 构建产物 | arm64，`minos 13.0`，ad-hoc 签名 |
@@ -482,7 +482,7 @@ EXT-001 阶段 2 的 v3 → v4 迁移**不丢任何历史**（四个固定列原
 
 ### 已知的文档过时点
 
-- **测试数散落在 5 个地方**，加用例时必须一起改，否则会拿一个对不上的数去核基线：本文两处（「命令」+ 文末基线表）、`README.md`、`README.zh-CN.md`。当前值 **458**。
+- **测试数散落在 5 个地方**，加用例时必须一起改，否则会拿一个对不上的数去核基线：本文两处（「命令」+ 文末基线表）、`README.md`、`README.zh-CN.md`。当前值 **477**。
 - **GitHub 仓库的 About（描述和标签）不在仓库里**，搜不到，最容易忘。支持的服务或产品定位变了，要一起用 `gh repo edit` 改；它是公开可见的，改之前先给用户看。2026-09-29 的版本列出了 claude-relay-service、sub2api、claude-code-hub、tu-zi Coding 四个服务。
 
 发现新的过时点时记在这里，别让它散落在各文件里。

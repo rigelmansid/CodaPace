@@ -248,4 +248,80 @@ final class Sub2APIProviderTests: XCTestCase {
         XCTAssertEqual(a.account.baseURL, "https://relay.example.com")
         XCTAssertEqual(a.secret, "sk-lab-one")
     }
+
+    // ── 缺字段(OPT-015)────────────────────────────────────
+
+    /// key 限额形态的最小响应。`total` 传 nil 表示整个 `usage.total` 没给
+    private func keyQuota(used: String = "12.5", total: String?) -> String {
+        let usage = total.map { #", "usage": {"total": \#($0)}"# } ?? ""
+        return #"{"isValid": true, "mode": "quota_limited", "quota": {"limit": 50, "used": \#(used)}\#(usage)}"#
+    }
+
+    /// 本条的起因:正常 → 累计值缺失 → 恢复,当天只能记真实的那段增量。
+    /// 从前中间那次按完整入库、累计值退成 0 并推进基线,恢复时整段 1200 被记成当天新增
+    func testAMissingTotalDoesNotInflateTheDaysUsage() {
+        let dir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cub-test-\(UUID().uuidString)", isDirectory: true)
+        let store = try! HistoryStore(path: dir.appendingPathComponent("History.sqlite"), accountKey: "k")
+        var writer = HistoryWriter()
+        let zone = TimeZone(identifier: "Asia/Shanghai")!
+
+        let sequence = [
+            keyQuota(total: #"{"actual_cost": 1, "requests": 100, "total_tokens": 1000}"#),
+            keyQuota(total: nil),
+            keyQuota(total: #"{"actual_cost": 1.2, "requests": 120, "total_tokens": 1200}"#),
+        ]
+        for (minute, json) in sequence.enumerated() {
+            guard let snap = snapshot(json, now: "2026-09-28T10:0\(minute):00.000000+08:00") else { return }
+            _ = try! writer.record(snap, to: store, timeZone: zone)
+        }
+
+        let day = try! store.tokenDays(from: "2026-09-28", to: "2026-09-28").first
+        XCTAssertEqual(day?.tokens, 200)
+        XCTAssertEqual(day?.requests, 20)
+    }
+
+    /// 累计值给了 null 和整块没给是同一回事:都没观测到
+    func testANullTotalMakesTheReadingIncomplete() {
+        guard let snap = snapshot(keyQuota(total: #"{"actual_cost": 1, "requests": null, "total_tokens": null}"#),
+                                  now: "2026-09-28T10:00:00.000000+08:00") else { return }
+        XCTAssertFalse(snap.hasCompleteUsage)
+        XCTAssertNil(snap.totalTokens)
+    }
+
+    /// 有上限、没报已用:面板照旧按 0 显示(和中转站同一个做法),但不能进历史
+    func testALimitWithoutItsUsageIsNotStoredAsZero() {
+        let total = #"{"actual_cost": 1, "requests": 100, "total_tokens": 1000}"#
+        guard let key = snapshot(keyQuota(used: "null", total: total),
+                                 now: "2026-09-28T10:00:00.000000+08:00") else { return }
+        XCTAssertFalse(key.hasCompleteUsage)
+
+        let subscriptionMissingDaily = subscription.replacingOccurrences(of: #""daily_usage_usd": 3.2,"#, with: "")
+        XCTAssertNotEqual(subscriptionMissingDaily, subscription, "替换锚点没命中")
+        guard let sub = snapshot(subscriptionMissingDaily, now: "2026-09-28T15:30:00.000000+08:00") else { return }
+        XCTAssertFalse(sub.hasCompleteUsage)
+        XCTAssertEqual(sub.gauges.first { $0.id == "daily" }?.used, 0)
+    }
+
+    /// HTTP 200 的无关 JSON(反代错误页、空对象)不是「没设额度」,是「不是这个协议」(OPT-016)。
+    /// 从前它们解成全默认值,测试连接报成功并停下,不再试下一家
+    func testAnUnrelatedJSONObjectIsNotTakenForSub2API() {
+        for body in [#"{"error":{"message":"not found"}}"#, "{}", #"{"isValid": true}"#] {
+            XCTAssertThrowsError(try Sub2APIUsage.decode(Data(body.utf8), language: .zhHans), body) { error in
+                XCTAssertEqual((error as? APIError)?.message,
+                               L10n.format(.errNotThisProtocolFormat, .zhHans, "sub2api"), body)
+            }
+        }
+        // 实测的四种形状都认(包括没用过的 key 和钱包余额)
+        for body in [quotaLimited, quotaLimitedUnused, subscription, wallet] {
+            do { _ = try Sub2APIUsage.decode(Data(body.utf8), language: .zhHans) }
+            catch { XCTFail("真实形状被拒:\(error)") }
+        }
+    }
+
+    /// 字段都齐的真实形状仍然完整 —— 上面几条不是靠把一切都判成不完整通过的
+    func testAFullReadingIsStillComplete() {
+        XCTAssertEqual(snapshot(quotaLimited, now: "2026-09-28T15:30:00.000000+08:00")?.hasCompleteUsage, true)
+        XCTAssertEqual(snapshot(subscription, now: "2026-09-28T15:30:00.000000+08:00")?.hasCompleteUsage, true)
+    }
 }

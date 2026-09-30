@@ -248,4 +248,67 @@ final class ClaudeCodeHubProviderTests: XCTestCase {
         XCTAssertEqual(connection.account.baseURL, "https://hub.example.com")
         XCTAssertEqual(connection.account.providerID, ClaudeCodeHubProvider.id)
     }
+
+    // ── 缺字段(OPT-015)────────────────────────────────────
+
+    /// 有上限、没报已用:面板照旧按 0 显示,但不能进历史 —— 0 和「不知道」在库里是两件事
+    func testALimitWithoutItsUsageIsNotStoredAsZero() {
+        let missing = fixedQuota.replacingOccurrences(of: #""keyCurrentDailyUsd":6,"#, with: "")
+        XCTAssertNotEqual(missing, fixedQuota, "替换锚点没命中")
+        guard let snap = snapshot(missing) else { return }
+        XCTAssertFalse(snap.hasCompleteUsage)
+        XCTAssertEqual(bucket(snap, "key_daily")?.used, 0)
+
+        // 对照:字段齐全时是完整的
+        XCTAssertEqual(snapshot(fixedQuota)?.hasCompleteUsage, true)
+    }
+
+    /// HTTP 200 的无关 JSON 不能被当成验证成功(OPT-016)。审查原样复现的就是这个:
+    /// 站点对每个请求都回 `200 {"error":…}`,从前 verify 报成功,设置页就此停下不试 sub2api
+    func testVerifyRejectsAnUnrelatedJSONObject() {
+        for body in [#"{"error":{"message":"not found"}}"#, "{}"] {
+            let adapter = ClaudeCodeHubProvider(transport: ScriptedTransport { _ in (200, body, [:]) },
+                                                sessions: InMemorySessionTokenStore())
+            guard let connection = adapter.parseConnection(site: site, key: "sk-lab") else { return XCTFail("解析不出连接") }
+            XCTAssertThrowsError(try runAsync { try await adapter.verify(connection, language: .zhHans) }) { error in
+                XCTAssertEqual((error as? APIError)?.message,
+                               L10n.format(.errNotThisProtocolFormat, .zhHans, "claude-code-hub"), body)
+            }
+        }
+    }
+
+    /// 测试连接换来的会话不进正式存储(OPT-017)。从前登录一成功就写进 `SessionTokens.store` ——
+    /// App 里那是钥匙串 —— 发生在额度请求之前,取消或失败都会留下一份能用 7 天的凭据
+    func testAScopedVerifyKeepsTheSessionOutOfTheSharedStore() {
+        let shared = InMemorySessionTokenStore()
+        let previous = SessionTokens.store
+        SessionTokens.store = shared
+        defer { SessionTokens.store = previous }
+
+        let scratch = InMemorySessionTokenStore()
+        let adapter = ClaudeCodeHubProvider(transport: opaqueSite(validSession: "sid_old", issuing: "sid_new"))
+        guard let connection = adapter.parseConnection(site: site, key: "sk-lab") else { return XCTFail("解析不出连接") }
+
+        do { _ = try runAsync { try await adapter.sessionScoped(to: scratch).verify(connection, language: .zhHans) } }
+        catch { return XCTFail("验证失败:\(error)") }
+        XCTAssertEqual(scratch.token(for: connection.account), "sid_new")
+        XCTAssertNil(shared.token(for: connection.account))
+    }
+
+    /// 不用会话的适配器原样返回自己 —— 通用层可以对谁都这么调,不必认识哪家要会话
+    func testAdaptersWithoutSessionsIgnoreTheScope() {
+        let scoped = Sub2APIProvider().sessionScoped(to: InMemorySessionTokenStore())
+        XCTAssertEqual(scoped.providerID, Sub2APIProvider.id)
+        XCTAssertTrue(scoped is Sub2APIProvider)
+    }
+
+    /// 上限是 null 的那一档本来就不出桶,它的已用缺不缺都不影响完整性
+    func testAMissingUsageOnAnUnlimitedTierDoesNotCount() {
+        let unlimited = fixedQuota
+            .replacingOccurrences(of: #""keyLimitDailyUsd":20,"#, with: #""keyLimitDailyUsd":null,"#)
+            .replacingOccurrences(of: #""keyCurrentDailyUsd":6,"#, with: "")
+        guard let snap = snapshot(unlimited) else { return }
+        XCTAssertNil(bucket(snap, "key_daily"))
+        XCTAssertTrue(snap.hasCompleteUsage)
+    }
 }

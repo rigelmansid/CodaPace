@@ -236,13 +236,17 @@ enum Config {
     /// 钥匙串里那条不在了(换过机器、重装过系统、用户手动删了)时 `secret` 为 nil,
     /// 适配器会抛出「缺少密钥」而不是发一个没有认证头的请求 —— 后者的报错是
     /// 401,看起来像 key 失效,会把人引到错误的方向。
-    static func connection(for account: AccountIdentity) -> Connection {
+    ///
+    /// - Throws: 钥匙串**读失败**(拒绝授权、钥匙串锁着、条目归属变了)。和「条目不存在」
+    ///   是两回事(OPT-018):从前一律 `try?` 成 nil,面板于是说「缺少密钥,请重新填写」——
+    ///   用户照做也没用,因为密钥明明还在。如实报出钥匙串给的原因。
+    static func connection(for account: AccountIdentity) throws -> Connection {
         let adapter = ProviderRegistry.adapter(for: account)
         guard adapter.credentialSensitivity == .secret else {
             return Connection(account: account)
         }
         return Connection(account: account,
-                          secret: try? KeychainStore.get(credentialKey(account)))
+                          secret: try KeychainStore.get(credentialKey(account)))
     }
 
     /// 钥匙串里那条密钥的键。

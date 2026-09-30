@@ -138,3 +138,39 @@ public extension Sample {
         )
     }
 }
+
+// MARK: - 保留期
+
+/// 采样只留最近 90 天(OPT-029,用户 2026-09-30 定)。
+///
+/// `pruneSamples` 早就写好了,但从没接上 —— 采样表和额度表一直在长(每分钟一条,
+/// 一年约 50 万 / 200 万行)。历史窗口最长看 30 天,90 天给回头查留了余量。
+///
+/// 按天的 token 桶和未归属的增量**不清**:一天一行,一年才几百行,
+/// 而它们是柱状图的全部来源,清掉就是丢总量。
+///
+/// 一天最多清一次:删除要拿写锁,没必要每分钟一次。放在写入**之后**做 ——
+/// 此时库里最新的那条就是刚写的,清理永远碰不到写入器的基线。
+public struct HistoryRetention {
+
+    public static let sampleAge: TimeInterval = 90 * 86_400
+    static let interval: TimeInterval = 86_400
+
+    private var lastPruned: Date?
+
+    public init() {}
+
+    /// 到期就清,返回这次有没有清。抛错时不记为已清,下次写入再试
+    @discardableResult
+    public mutating func pruneIfDue(_ store: HistoryStore, now: Date) throws -> Bool {
+        if let lastPruned, now.timeIntervalSince(lastPruned) < Self.interval { return false }
+        try store.pruneSamples(before: now.addingTimeInterval(-Self.sampleAge))
+        lastPruned = now
+        return true
+    }
+
+    /// 换账户:新账户的分区还没清过,下一次写入就该清一次
+    public mutating func reset() {
+        lastPruned = nil
+    }
+}

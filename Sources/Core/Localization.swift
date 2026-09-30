@@ -133,6 +133,8 @@ public enum LangKey: String, CaseIterable {
     case setupSafetyIdentifier, setupSafetySecret
     case errInvalidFieldFormat
     case errHistoryStore
+    case setupMustTestGuess, errNotThisProtocolFormat
+    case errKeychainFormat, errKeychainUnknownReason, errKeychainMalformed
 }
 
 // MARK: - 查表
@@ -592,5 +594,23 @@ public enum L10n {
         .errHistoryStore: [
             .zhHans: "历史数据库出错", .zhHant: "歷史資料庫發生錯誤",
             .en: "History database error"],
+        // 陌生网址光看地址分不出跑的是哪种软件,「解析得出来」不等于「协议对」(OPT-016)
+        .setupMustTestGuess: [
+            .zhHans: "未识别的站点要先「测试连接」,确认它跑的是哪种软件才能保存",
+            .zhHant: "未識別的站點要先「測試連線」,確認它跑的是哪種軟體才能儲存",
+            .en: "Unrecognized site — test the connection to confirm which software it runs before saving"],
+        // HTTP 200 却不是这家的响应格式(反代的错误页、别的软件)。**不能**当成「没设上限」
+        .errNotThisProtocolFormat: [
+            .zhHans: "响应不是 %@ 的格式", .zhHant: "回應不是 %@ 的格式",
+            .en: "The response isn’t in %@’s format"],
+        // 钥匙串的失败原因千差万别(拒绝授权、锁定、签名变化),系统给的原因原样带出来(OPT-018)
+        .errKeychainFormat: [
+            .zhHans: "钥匙串操作失败:%@", .zhHant: "鑰匙圈操作失敗:%@",
+            .en: "Keychain error: %@"],
+        .errKeychainUnknownReason: [
+            .zhHans: "未知原因", .zhHant: "未知原因", .en: "unknown reason"],
+        .errKeychainMalformed: [
+            .zhHans: "钥匙串里存的不是有效文本", .zhHant: "鑰匙圈裡存的不是有效文字",
+            .en: "The keychain item isn’t valid text"],
     ]
 }

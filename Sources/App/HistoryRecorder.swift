@@ -20,6 +20,9 @@ final class HistoryRecorder {
     /// 见 Core 的 `HistoryWriter`。
     private var writer = HistoryWriter()
 
+    /// 采样只留 90 天,一天最多清一次(OPT-029)
+    private var retention = HistoryRetention()
+
     /// 最近一次存储错误。历史记录坏掉不该影响主功能,只在面板上提一句。
     private(set) var lastError: String?
 
@@ -46,6 +49,9 @@ final class HistoryRecorder {
             // 放在写入成功之后:写失败时这次观测等于没发生过,
             // 不该拿它去改写「日重置在几点」这个学出来的结论。
             learnDailyReset(previous: outcome.previous, current: outcome.sample, account: account)
+
+            // 清理放在写入之后:库里最新的那条就是刚写的,碰不到基线
+            try retention.pruneIfDue(store, now: outcome.sample.at)
 
             lastError = nil
         } catch {
@@ -99,6 +105,7 @@ final class HistoryRecorder {
         store = nil
         accountKey = nil
         writer.reset()
+        retention.reset()
         lastError = nil
     }
 
@@ -116,6 +123,7 @@ final class HistoryRecorder {
         store = opened
         accountKey = key
         writer.reset()          // 换账号了,两条基线都要重建
+        retention.reset()
         return opened
     }
 

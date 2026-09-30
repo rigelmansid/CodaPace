@@ -24,15 +24,18 @@ enum KeychainError: LocalizedError {
     case unexpectedStatus(OSStatus)
     case malformedData
 
+    /// 文案走 L10n(OPT-018):从前写死中文,英文界面下设置窗口和面板里照样冒中文
     var errorDescription: String? {
+        let language = Config.language
         switch self {
         case .unexpectedStatus(let status):
             // 把系统给的原因原样带出来 —— 钥匙串的失败原因千差万别(权限、锁定、
             // 签名变化),吞掉它等于让用户对着一句「保存失败」无从下手
-            let reason = SecCopyErrorMessageString(status, nil) as String? ?? "未知原因"
-            return "钥匙串操作失败:\(reason)(\(status))"
+            let reason = SecCopyErrorMessageString(status, nil) as String?
+                ?? L10n.text(.errKeychainUnknownReason, language)
+            return L10n.format(.errKeychainFormat, language, "\(reason)(\(status))")
         case .malformedData:
-            return "钥匙串里存的不是有效文本"
+            return L10n.text(.errKeychainMalformed, language)
         }
     }
 }
