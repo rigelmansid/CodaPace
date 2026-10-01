@@ -192,7 +192,26 @@ final class ResetScheduleTests: XCTestCase {
 
         XCTAssertNotNil(w)
         XCTAssertEqual(w!.duration, 3600, accuracy: 0.001)
-        XCTAssertEqual(w!.remainingSeconds(now: now), 1317, accuracy: 0.001)
+        // 结束时刻取整到分钟(OPT-026),剩余时间最多差 30 秒
+        XCTAssertEqual(w!.remainingSeconds(now: now), 1317, accuracy: 30)
+    }
+
+    /// OPT-026:同一个窗口里多次刷新,反推出的起点必须是同一个 —— 它是告警去重键和
+    /// 周期 ID 的身份。实测从前 5 次刷新(间隔 60.7 秒,剩余秒数按整数递减)得到 4 个不同的起点
+    func testFallbackWindowStartIsStableAcrossRefreshes() {
+        let end = makeDate(2026, 9, 8, 2, 0)
+        var starts: Set<Date> = []
+        for i in 0..<5 {
+            let now = makeDate(2026, 9, 8, 0, 38).addingTimeInterval(Double(i) * 60.7 + 0.37)
+            var limits = Limits()
+            limits.rateLimitWindow = 60
+            // 服务端按自己的时钟算剩余秒数(取整),和我们的 now 差着零点几秒
+            limits.windowRemainingSeconds = Int(end.timeIntervalSince(now).rounded(.down))
+            if let start = ResetSchedule(timeZone: shanghai).windowInterval(limits: limits, now: now)?.start {
+                starts.insert(start)
+            }
+        }
+        XCTAssertEqual(starts.count, 1)
     }
 
     func testWindowIsNilWhenNoTimingDataAtAll() {
@@ -298,6 +317,36 @@ final class DailyResetLearnerTests: XCTestCase {
                                             timeZone: shanghai)
         XCTAssertEqual(obs?.hour, 4)
     }
+
+    /// OPT-025:半小时时区里,服务端的 UTC 0 点落在当地 05:30。从前只取整点,学成 05:00,
+    /// 日窗口比真实早半小时开始,却标成「已观测」
+    func testAResetOnTheHalfHourKeepsItsMinutes() {
+        let kolkata = TimeZone(identifier: "Asia/Kolkata")!
+        let before = makeDate(2026, 9, 8, 5, 29, 30, tz: kolkata)
+        let after = makeDate(2026, 9, 8, 5, 31, 10, tz: kolkata)
+
+        guard let obs = DailyResetLearner.observe(previous: (value: 9, at: before),
+                                                  current: (value: 0.1, at: after),
+                                                  timeZone: kolkata) else { return XCTFail("没观测到") }
+        XCTAssertEqual(obs.hour, 5)
+        XCTAssertEqual(obs.minute, 30)
+
+        // 学到之后,日窗口从 05:30 开始
+        let learned = DailyResetLearner.reconcile(stored: nil, observation: obs, timeZone: kolkata)
+        let schedule = ResetSchedule(timeZone: kolkata, dailyResetHour: learned?.hour ?? -1,
+                                     dailyResetMinute: learned?.minute ?? -1,
+                                     dailyResetHourIsObserved: true)
+        XCTAssertEqual(schedule.dailyInterval(now: makeDate(2026, 9, 8, 12, tz: kolkata))?.start,
+                       makeDate(2026, 9, 8, 5, 30, tz: kolkata))
+    }
+
+    /// OPT-025:一次小幅冲正(3.20 → 3.19)也是下降,但不像归零 —— 不能把重置时刻改到这里
+    func testASmallCorrectionIsNotAReset() {
+        let t = makeDate(2026, 9, 8, 14, 0)
+        XCTAssertNil(DailyResetLearner.observe(previous: (value: 3.20, at: t),
+                                               current: (value: 3.19, at: t.addingTimeInterval(60)),
+                                               timeZone: shanghai))
+    }
 }
 
 // MARK: - 学到的日重置规则:按账户隔离与后续更新
@@ -350,6 +399,17 @@ final class LearnedDailyResetTests: XCTestCase {
                                                  observation: observation(hour: 14),
                                                  timeZone: shanghai)
         XCTAssertEqual(updated?.hour, 14)
+    }
+
+    /// 同一个小时、不同的分钟也是新结论(OPT-025)。从前只比小时,05:00 学成之后
+    /// 再观测到 05:30 也不会改
+    func testSameHourDifferentMinuteUpdatesTheRule() {
+        let stored = LearnedDailyReset(hour: 5, timeZoneIdentifier: shanghai.identifier, uncertainty: 60)
+        let after = makeDate(2026, 9, 9, 5, 30, 30)
+        guard let obs = DailyResetLearner.observe(previous: (value: 42, at: after.addingTimeInterval(-60)),
+                                                  current: (value: 0.1, at: after),
+                                                  timeZone: shanghai) else { return XCTFail("没观测到") }
+        XCTAssertEqual(DailyResetLearner.reconcile(stored: stored, observation: obs, timeZone: shanghai)?.minute, 30)
     }
 
     /// 换了时区,旧结论的前提不成立 —— 直接采纳新观测,不拿旧值算倒计时

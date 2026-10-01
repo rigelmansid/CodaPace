@@ -181,6 +181,10 @@ public enum QuotaSeriesBuilder {
         guard samples.count > 1 else { return [:] }
 
         var result: [Int: BreakReason] = [:]
+        // 上一条**报了这条额度**的采样。计数器下降要拿它比,不是拿紧邻的那条(OPT-024):
+        // 「80 → 这条额度暂时没报 → 5」,紧邻的那条没有读数,下降的证据就被它挡掉了,
+        // 曲线于是从 20% 一根实线连到 95%,跨过了一次重置
+        var lastReported: Sample? = samples[0].used(bucketID) == nil ? nil : samples[0]
         for index in 1..<samples.count {
             let previous = samples[index - 1]
             let current = samples[index]
@@ -189,11 +193,13 @@ public enum QuotaSeriesBuilder {
             // 哪怕它夹在一段长空白里,也确切说明前后属于不同周期。
             // 既然知道是重置,就不该用虚线把两端连起来 —— 那会画成一条斜着爬升的假线。
             // 空白本身仍由阴影标出,信息没有丢。
-            if crossedReset(from: previous, to: current, bucketID: bucketID, rule: rule) {
+            if crossedReset(from: previous, to: current, lastReported: lastReported,
+                            bucketID: bucketID, rule: rule) {
                 result[index] = .reset
             } else if current.at.timeIntervalSince(previous.at) > gapThreshold {
                 result[index] = .gap
             }
+            if current.used(bucketID) != nil { lastReported = current }
         }
         return result
     }
@@ -204,7 +210,11 @@ public enum QuotaSeriesBuilder {
     ///   哪怕两侧用量恰好相同(比如整个周期都没用过),也照样能认出来。
     /// · **计数器下降** —— 补充证据。规则不知道的重置(管理员手动清零、
     ///   服务端改了配置)只剩它能看出来,所以不能因为有了规则就丢掉它。
+    ///
+    /// 计数器那条证据拿 `lastReported`(上一条报了这条额度的采样)比。缺数据本身仍然
+    /// **不算**证据 —— 只是缺口两侧都有读数、而后一侧更低时,下降就是下降。
     private static func crossedReset(from previous: Sample, to current: Sample,
+                                     lastReported: Sample?,
                                      bucketID: String, rule: ResetRule?) -> Bool {
         if let rule,
            let before = rule.periodID(containing: previous.at),
@@ -212,8 +222,8 @@ public enum QuotaSeriesBuilder {
            before != after {
             return true
         }
-        // 有一侧没有这条额度就**没有证据** —— 缺数据不等于计数器下降过。
-        guard let before = previous.used(bucketID),
+        // 这一条没有读数,或者此前从没有过读数,就**没有证据** —— 缺数据不等于计数器下降过。
+        guard let before = lastReported?.used(bucketID),
               let after = current.used(bucketID) else { return false }
         return after < before
     }

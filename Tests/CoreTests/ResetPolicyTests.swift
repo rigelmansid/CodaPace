@@ -106,6 +106,68 @@ final class DaylightSavingTests: XCTestCase {
 
 // MARK: - 时区变化
 
+/// OPT-023:周期首尾相接、每个时刻都落在自己的周期里 —— 跨夏令时切换也一样。
+///
+/// 从前终点是「起点 + 一天」:重置时刻落在跳过的那一小时里(纽约 3/8 的 02:30),
+/// 起点被挪到 03:00,终点跟着成了 3/9 03:00,而 3/9 02:30 已经是下一个周期 ——
+/// 两个周期重叠半小时。另外为了让「恰好在边界上」返回自己,查询时刻 +1 秒,
+/// 于是边界前不到一秒(23:59:59.5)就被算进了下一个周期。
+final class CalendarBoundaryTests: XCTestCase {
+
+    /// 逐个时刻扫一遍:周期必须包含它,并且这个周期的终点恰好是下一个周期的起点
+    private func assertSeamless(_ rule: ResetRule, from: Date, hours: Int,
+                                file: StaticString = #filePath, line: UInt = #line) {
+        for step in 0..<(hours * 6) {
+            let moment = from.addingTimeInterval(Double(step) * 600 + 0.5)
+            guard let period = rule.period(containing: moment) else {
+                return XCTFail("\(moment) 算不出周期", file: file, line: line)
+            }
+            // 只报第一处:一处断开后面会连着错一大片,刷屏反而看不出是哪儿
+            guard period.start <= moment && moment < period.end else {
+                return XCTFail("\(moment) 不在 \(period.start)…\(period.end) 里", file: file, line: line)
+            }
+            guard rule.period(containing: period.end)?.start == period.end else {
+                return XCTFail("\(period.end) 之后的周期没有接上", file: file, line: line)
+            }
+        }
+    }
+
+    /// 本条的起因:重置时刻落在春季跳过的那一小时里
+    func testAResetInsideTheSkippedHourDoesNotOverlapTheNextDay() {
+        let rule = daily(2, 30)
+        guard let period = rule.period(containing: at(2026, 3, 8, 12)) else { return XCTFail("算不出周期") }
+        XCTAssertEqual(period.end, at(2026, 3, 9, 2, 30))
+        XCTAssertEqual(rule.period(containing: at(2026, 3, 9, 2, 31))?.start, at(2026, 3, 9, 2, 30))
+    }
+
+    func testDailyPeriodsAreSeamlessAcrossSpringForward() {
+        assertSeamless(daily(2, 30), from: at(2026, 3, 6), hours: 96)
+        assertSeamless(daily(0), from: at(2026, 3, 6), hours: 96)
+    }
+
+    /// 秋季那一小时走两遍:重置时刻在重复的那一小时里,也不能切出一个一小时长的周期
+    func testDailyPeriodsAreSeamlessAcrossFallBack() {
+        assertSeamless(daily(1, 30), from: at(2026, 10, 30), hours: 96)
+        guard let period = daily(1, 30).period(containing: at(2026, 11, 1, 12)) else { return XCTFail("算不出周期") }
+        XCTAssertTrue(period.end.timeIntervalSince(period.start) >= 23 * 3600, "周期只有 \(period.end.timeIntervalSince(period.start)) 秒")
+    }
+
+    func testWeeklyPeriodsAreSeamlessAcrossTheTransition() {
+        let weekly = ResetRule(.calendarWeekly(timeZone: ny, weekday: 1, hour: 2, minute: 30), provenance: .configured)
+        assertSeamless(weekly, from: at(2026, 3, 1), hours: 24 * 15)
+    }
+
+    /// 边界前半秒还是旧周期
+    func testHalfASecondBeforeTheBoundaryIsStillTheOldPeriod() {
+        let utc = TimeZone(identifier: "UTC")!
+        let rule = daily(0, 0, utc)
+        let moment = at(2026, 9, 29, 0, 0, utc).addingTimeInterval(-0.5)
+        guard let period = rule.period(containing: moment) else { return XCTFail("算不出周期") }
+        XCTAssertEqual(period.start, at(2026, 9, 28, 0, 0, utc))
+        XCTAssertEqual(period.end, at(2026, 9, 29, 0, 0, utc))
+    }
+}
+
 final class ResetTimeZoneTests: XCTestCase {
 
     /// 同一条「当地 0 点」规则,换个时区指的就是另一个瞬间

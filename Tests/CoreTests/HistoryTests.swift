@@ -1034,6 +1034,28 @@ final class SchemaMigrationTests: XCTestCase {
                        "重跑展开的话,这里会冒出 total/weeklyOpus/window 三条 0")
     }
 
+    /// OPT-027:回退到 v3 再升级。v3 打开库时会把 user_version 写回 3,于是再升级时
+    /// 展开又跑一遍 —— 给已经有桶行的 v4 采样注入 total / weeklyOpus / window 三条 0。
+    /// 门控靠不住时,展开本身得认出「这条采样已经展开过」
+    func testRollingBackToV3AndUpgradingAgainAddsNoGhostBuckets() {
+        let url = storeURL()
+        do {
+            let v4 = try! HistoryStore(path: url, accountKey: "key-a")
+            try! v4.insert(Sample(at: base, quotas: ["daily": QuotaReading(used: 42, limit: 70),
+                                                     "weekly": QuotaReading(used: 7, limit: 100)]))
+        }
+
+        // 旧版打开过:user_version 回到 3
+        var raw: OpaquePointer?
+        sqlite3_open(url.path, &raw)
+        sqlite3_exec(raw, "PRAGMA user_version = 3;", nil, nil, nil)
+        sqlite3_close(raw)
+
+        let reopened = try! HistoryStore(path: url, accountKey: "key-a")
+        XCTAssertEqual(try! reopened.knownBucketIDs(), ["daily", "weekly"])
+        XCTAssertEqual(try! reopened.lastSample()?.quotas.count, 2)
+    }
+
     // MARK: 认领老分区(EXT-009)
 
     /// 分区键加 providerID 之后,老用户的历史靠这一步接上。

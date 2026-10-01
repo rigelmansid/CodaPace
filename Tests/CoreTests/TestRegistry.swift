@@ -36,6 +36,7 @@ let allSuites: [TestSuite] = [
     ("ResetScheduleTests", [
         ("testWindowUsesExactTimestampsWhenPresent", { ResetScheduleTests().testWindowUsesExactTimestampsWhenPresent() }),
         ("testWindowFallsBackToRemainingSeconds", { ResetScheduleTests().testWindowFallsBackToRemainingSeconds() }),
+        ("testFallbackWindowStartIsStableAcrossRefreshes", { ResetScheduleTests().testFallbackWindowStartIsStableAcrossRefreshes() }),
         ("testWindowIsNilWhenNoTimingDataAtAll", { ResetScheduleTests().testWindowIsNilWhenNoTimingDataAtAll() }),
         ("testWeeklyIntervalResolvesToPreviousMonday", { ResetScheduleTests().testWeeklyIntervalResolvesToPreviousMonday() }),
         ("testWeeklyIntervalIsNilWhenFieldsMissing", { ResetScheduleTests().testWeeklyIntervalIsNilWhenFieldsMissing() }),
@@ -49,6 +50,8 @@ let allSuites: [TestSuite] = [
         ("testRisingCounterIsNotAReset", { DailyResetLearnerTests().testRisingCounterIsNotAReset() }),
         ("testWideSamplingGapIsRejected", { DailyResetLearnerTests().testWideSamplingGapIsRejected() }),
         ("testResetAtNonMidnightHourIsLearned", { DailyResetLearnerTests().testResetAtNonMidnightHourIsLearned() }),
+        ("testAResetOnTheHalfHourKeepsItsMinutes", { DailyResetLearnerTests().testAResetOnTheHalfHourKeepsItsMinutes() }),
+        ("testASmallCorrectionIsNotAReset", { DailyResetLearnerTests().testASmallCorrectionIsNotAReset() }),
     ]),
 
     ("LearnedDailyResetTests", [
@@ -58,6 +61,7 @@ let allSuites: [TestSuite] = [
         ("testContradictingObservationUpdatesTheRule", { LearnedDailyResetTests().testContradictingObservationUpdatesTheRule() }),
         ("testTimeZoneChangeDiscardsTheOldRule", { LearnedDailyResetTests().testTimeZoneChangeDiscardsTheOldRule() }),
         ("testUnknownRuleKeepsTheInferredMarker", { LearnedDailyResetTests().testUnknownRuleKeepsTheInferredMarker() }),
+        ("testSameHourDifferentMinuteUpdatesTheRule", { LearnedDailyResetTests().testSameHourDifferentMinuteUpdatesTheRule() }),
     ]),
 
     ("AccountKeyScopeTests", [
@@ -288,6 +292,14 @@ let allSuites: [TestSuite] = [
         ("testFixedDurationKeepsItsExactLengthAcrossTheTransition", { DaylightSavingTests().testFixedDurationKeepsItsExactLengthAcrossTheTransition() }),
     ]),
 
+    ("CalendarBoundaryTests", [
+        ("testAResetInsideTheSkippedHourDoesNotOverlapTheNextDay", { CalendarBoundaryTests().testAResetInsideTheSkippedHourDoesNotOverlapTheNextDay() }),
+        ("testDailyPeriodsAreSeamlessAcrossSpringForward", { CalendarBoundaryTests().testDailyPeriodsAreSeamlessAcrossSpringForward() }),
+        ("testDailyPeriodsAreSeamlessAcrossFallBack", { CalendarBoundaryTests().testDailyPeriodsAreSeamlessAcrossFallBack() }),
+        ("testWeeklyPeriodsAreSeamlessAcrossTheTransition", { CalendarBoundaryTests().testWeeklyPeriodsAreSeamlessAcrossTheTransition() }),
+        ("testHalfASecondBeforeTheBoundaryIsStillTheOldPeriod", { CalendarBoundaryTests().testHalfASecondBeforeTheBoundaryIsStillTheOldPeriod() }),
+    ]),
+
     ("ResetTimeZoneTests", [
         ("testSameLocalHourInAnotherZoneIsADifferentInstant", { ResetTimeZoneTests().testSameLocalHourInAnotherZoneIsADifferentInstant() }),
     ]),
@@ -373,6 +385,7 @@ let allSuites: [TestSuite] = [
         ("testUpgradingFromV3ExpandsTheFixedColumnsIntoBuckets", { SchemaMigrationTests().testUpgradingFromV3ExpandsTheFixedColumnsIntoBuckets() }),
         ("testV3RowsWithoutLimitsStayUnknownAfterMigration", { SchemaMigrationTests().testV3RowsWithoutLimitsStayUnknownAfterMigration() }),
         ("testTheV4ExpansionDoesNotRunTwice", { SchemaMigrationTests().testTheV4ExpansionDoesNotRunTwice() }),
+        ("testRollingBackToV3AndUpgradingAgainAddsNoGhostBuckets", { SchemaMigrationTests().testRollingBackToV3AndUpgradingAgainAddsNoGhostBuckets() }),
         ("testALegacyPartitionIsAdoptedUnderTheNewKey", { SchemaMigrationTests().testALegacyPartitionIsAdoptedUnderTheNewKey() }),
         ("testEveryPartitionedTableIsCarriedOver", { SchemaMigrationTests().testEveryPartitionedTableIsCarriedOver() }),
         ("testAdoptingIsIdempotentAcrossReopens", { SchemaMigrationTests().testAdoptingIsIdempotentAcrossReopens() }),
@@ -640,6 +653,8 @@ let allSuites: [TestSuite] = [
         ("testResetStartsNewSeries", { QuotaSeriesTests().testResetStartsNewSeries() }),
         ("testOverspendClampsToZero", { QuotaSeriesTests().testOverspendClampsToZero() }),
         ("testASampleWithoutTheBucketIsSkippedRatherThanDrawnAsFull", { QuotaSeriesTests().testASampleWithoutTheBucketIsSkippedRatherThanDrawnAsFull() }),
+        ("testADropAcrossAMissingSampleStillBreaksTheCurve", { QuotaSeriesTests().testADropAcrossAMissingSampleStillBreaksTheCurve() }),
+        ("testARiseAcrossAMissingSampleStaysOneCurve", { QuotaSeriesTests().testARiseAcrossAMissingSampleStaysOneCurve() }),
         ("testAskingForAnUnknownBucketDrawsNothing", { QuotaSeriesTests().testAskingForAnUnknownBucketDrawsNothing() }),
         ("testEmptyInputProducesNoPoints", { QuotaSeriesTests().testEmptyInputProducesNoPoints() }),
         ("testGapIntervalsAreReported", { QuotaSeriesTests().testGapIntervalsAreReported() }),

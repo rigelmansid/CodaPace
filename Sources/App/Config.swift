@@ -98,7 +98,12 @@ enum Config {
               let zone = raw["timeZone"] as? String, !zone.isEmpty
         else { return nil }
 
+        // 分钟是 OPT-025 加的,之前学到的结论没有这一项 —— 那时只学整点,按 0 读正是它的原意
+        let minute = raw["minute"] as? Int ?? 0
+        guard (0...59).contains(minute) else { return nil }
+
         let record = LearnedDailyReset(hour: hour,
+                                       minute: minute,
                                        timeZoneIdentifier: zone,
                                        uncertainty: raw["uncertainty"] as? TimeInterval ?? 0)
 
@@ -109,6 +114,7 @@ enum Config {
 
     static func setLearnedDailyReset(_ value: LearnedDailyReset, for account: AccountIdentity) {
         defaults.set(["hour": value.hour,
+                      "minute": value.minute,
                       "timeZone": value.timeZoneIdentifier,
                       "uncertainty": value.uncertainty],
                      forKey: learnedResetKey(account))
@@ -276,6 +282,7 @@ enum Config {
         let learned = learnedDailyReset(for: account)
         return ResetSchedule(timeZone: .current,
                              dailyResetHour: learned?.hour ?? 0,
+                             dailyResetMinute: learned?.minute ?? 0,
                              dailyResetHourIsObserved: learned != nil)
     }
 

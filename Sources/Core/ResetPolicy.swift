@@ -148,14 +148,14 @@ public struct ResetRule: Equatable {
         case let .calendarDaily(timeZone, hour, minute):
             return calendarBounds(timeZone: timeZone,
                                   match: DateComponents(hour: hour, minute: minute, second: 0),
-                                  step: .day, value: 1, containing: moment)
+                                  containing: moment)
 
         case let .calendarWeekly(timeZone, weekday, hour, minute):
             guard (1...7).contains(weekday) else { return nil }
             return calendarBounds(timeZone: timeZone,
                                   match: DateComponents(hour: hour, minute: minute, second: 0,
                                                         weekday: weekday),
-                                  step: .day, value: 7, containing: moment)
+                                  containing: moment)
 
         case let .fixedDuration(anchor, seconds):
             // 纯秒数运算:往前往后都能推,而且不受夏令时影响 —— 它本来数的就是绝对时间
@@ -175,20 +175,32 @@ public struct ResetRule: Equatable {
         }
     }
 
-    /// 日历规则的通用算法:往回找最近一次匹配,再按**日历**加一个周期。
-    /// 用日历加而不是加秒数,夏令时切换日才会得到 23 或 25 小时的那一天。
+    /// 日历规则的通用算法:往回找最近一次匹配作起点,**往前找下一次匹配作终点**。
+    /// 两头都按日历匹配,夏令时切换日才会得到 23 或 25 小时的那一天。
+    ///
+    /// 终点从前是「起点 + 一天(一周)」(OPT-023)。平时两种算法结果一样,但重置时刻
+    /// 落在春季跳过的那一小时里(纽约 3/8 的 02:30)时,起点被 `.nextTime` 挪到 03:00,
+    /// 加一天就成了 3/9 03:00 —— 而 3/9 的 02:30 真实存在,下一个周期在那里就开始了,
+    /// 两个周期重叠半小时。挪过的起点不该再当推终点的基准,终点要回到规则本身去找。
     private func calendarBounds(timeZone: TimeZone, match: DateComponents,
-                                step: Calendar.Component, value: Int,
                                 containing moment: Date) -> (Date, Date)? {
         var calendar = Calendar(identifier: .gregorian)
         calendar.timeZone = timeZone
 
+        func previous(before date: Date) -> Date? {
+            calendar.nextDate(after: date, matching: match, matchingPolicy: .nextTime, direction: .backward)
+        }
+
         // +1 秒再往回找,保证 moment 恰好落在边界上时返回它自己而不是退一整个周期
-        guard let start = calendar.nextDate(after: moment.addingTimeInterval(1),
-                                            matching: match,
-                                            matchingPolicy: .nextTime,
-                                            direction: .backward),
-              let end = calendar.date(byAdding: step, value: value, to: start)
+        guard var start = previous(before: moment.addingTimeInterval(1)) else { return nil }
+        // 但边界前不到一秒(23:59:59.5)也会因此找到下一个边界,它在 moment 之后 —— 再退一个(OPT-023)
+        if start > moment {
+            guard let earlier = previous(before: start) else { return nil }
+            start = earlier
+        }
+
+        guard let end = calendar.nextDate(after: start, matching: match,
+                                          matchingPolicy: .nextTime, direction: .forward)
         else { return nil }
 
         return (start, end)

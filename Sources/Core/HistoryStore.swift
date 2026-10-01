@@ -213,15 +213,33 @@ public final class HistoryStore {
         //
         // 一次迁移整个文件里的所有账户分区 —— `user_version` 是按文件记的,
         // 只会跑这一遍,按当前 accountKey 过滤反而会漏掉其他账户的历史。
+        //
+        // **只展开还没有桶行的采样**(OPT-027)。user_version 的门控不够:旧版(v3)打开库时
+        // 会无条件把它写回 3,回退一次再升级,展开就会再跑一遍 —— v4 写的采样那四个旧列
+        // 是 0 占位,于是每条都多出 total / weeklyOpus / window 三条 used = 0 的假桶:
+        // 别家账户的额度选择器里冒出中转站的额度名,中转站账户画出一次假重置。
+        //
+        // 先把「待展开」的采样记进临时表再插:四条 INSERT 一条条跑,第一条插完,
+        // 后三条再判断「有没有桶行」就全都是有了。整段放进一个事务,不留展开了一半的库
         if from < 4 {
-            for (column, bucketID) in [("total", "total"), ("daily", "daily"),
-                                       ("weekly_opus", "weeklyOpus"), ("window", "window")] {
+            try transaction {
                 try execute("""
-                    INSERT OR IGNORE INTO quota_samples
-                      (account_key, ts, bucket_id, used, limit_value)
-                    SELECT account_key, ts, '\(bucketID)', \(column)_cost, \(column)_limit
-                    FROM samples;
+                    CREATE TEMP TABLE pending_expansion AS
+                    SELECT account_key, ts FROM samples s
+                    WHERE NOT EXISTS (SELECT 1 FROM quota_samples q
+                                      WHERE q.account_key = s.account_key AND q.ts = s.ts);
                     """)
+                for (column, bucketID) in [("total", "total"), ("daily", "daily"),
+                                           ("weekly_opus", "weeklyOpus"), ("window", "window")] {
+                    try execute("""
+                        INSERT OR IGNORE INTO quota_samples
+                          (account_key, ts, bucket_id, used, limit_value)
+                        SELECT s.account_key, s.ts, '\(bucketID)', s.\(column)_cost, s.\(column)_limit
+                        FROM samples s
+                        JOIN pending_expansion p ON p.account_key = s.account_key AND p.ts = s.ts;
+                        """)
+                }
+                try execute("DROP TABLE pending_expansion;")
             }
         }
 

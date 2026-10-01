@@ -98,6 +98,29 @@ final class QuotaSeriesTests: XCTestCase {
         XCTAssertEqual(points.last?.remainingRatio ?? -1, 0.4, accuracy: 1e-9)
     }
 
+    /// OPT-024:缺了一条之后恢复,读数比缺口之前低 —— 那是一次重置,不能实线连过去。
+    /// 从前只和紧邻的那条比,而它没有读数,于是 80 → 缺 → 5 被画成从 20% 连到 95% 的一根线。
+    /// 规则给不出周期(没有 rule),所以只能靠计数器下降这条证据
+    func testADropAcrossAMissingSampleStillBreaksTheCurve() {
+        let samples = [chartSample(minutes: 0, daily: 56),
+                       Sample(at: chartBase.addingTimeInterval(60), quotas: [:]),
+                       chartSample(minutes: 2, daily: 3.5)]
+
+        let points = QuotaSeriesBuilder.build(samples: samples, bucketID: "daily")
+        XCTAssertEqual(points.count, 2)
+        XCTAssertNotEqual(points.first?.series, points.last?.series)
+    }
+
+    /// 对照:缺口之后读数照常上涨,仍是同一段 —— 缺数据本身不算重置(OPT-012 的口径不变)
+    func testARiseAcrossAMissingSampleStaysOneCurve() {
+        let samples = [chartSample(minutes: 0, daily: 35),
+                       Sample(at: chartBase.addingTimeInterval(60), quotas: [:]),
+                       chartSample(minutes: 2, daily: 42)]
+
+        let points = QuotaSeriesBuilder.build(samples: samples, bucketID: "daily")
+        XCTAssertEqual(points.first?.series, points.last?.series)
+    }
+
     /// 问的是一条根本没采过的额度时,一条也画不出来 ——
     /// 不该拿手上这条额度的数字顶上去
     func testAskingForAnUnknownBucketDrawsNothing() {

@@ -20,14 +20,20 @@ public struct ResetSchedule {
     /// 日额度重置的小时数(0…23)
     public var dailyResetHour: Int
 
+    /// 日额度重置的分钟数(0…59)。半小时时区(印度 +5:30、尼泊尔 +5:45)下,
+    /// 服务端的 UTC 0 点落在当地的半点上 —— 只有小时会差出半小时(OPT-025)
+    public var dailyResetMinute: Int
+
     /// 上面这个值是从历史观测来的(true),还是默认兜底的(false)
     public var dailyResetHourIsObserved: Bool
 
     public init(timeZone: TimeZone = .current,
                 dailyResetHour: Int = 0,
+                dailyResetMinute: Int = 0,
                 dailyResetHourIsObserved: Bool = false) {
         self.timeZone = timeZone
         self.dailyResetHour = dailyResetHour
+        self.dailyResetMinute = dailyResetMinute
         self.dailyResetHourIsObserved = dailyResetHourIsObserved
     }
 
@@ -60,9 +66,15 @@ public struct ResetSchedule {
             )
         }
 
-        // 退路:现在 + 剩余秒数 = 结束,再往前推一个窗口长度
+        // 退路:现在 + 剩余秒数 = 结束,再往前推一个窗口长度。
+        //
+        // 结束时刻**取整到分钟**(OPT-026)。`now` 带小数,又和服务端算剩余秒数的时刻差着
+        // 一点网络延迟,于是每次刷新反推出的起点都差一两秒 —— 而告警去重键和历史周期 ID
+        // 都拿起点当周期的身份:同一个窗口里低额度告警几乎每分钟重发一次。
+        // 剩余时间因此最多差 30 秒,对小时级的窗口无关紧要
         if limits.rateLimitWindow > 0, limits.windowRemainingSeconds > 0 {
-            let end = now.addingTimeInterval(TimeInterval(limits.windowRemainingSeconds))
+            let raw = now.timeIntervalSince1970 + TimeInterval(limits.windowRemainingSeconds)
+            let end = Date(timeIntervalSince1970: (raw / 60).rounded() * 60)
             let start = end.addingTimeInterval(-TimeInterval(limits.rateLimitWindow * 60))
             return TimeWindow(start: start, end: end, isInferred: false)
         }
@@ -94,7 +106,7 @@ public struct ResetSchedule {
     /// 日重置是**日历规则**,不是每隔 86400 秒 —— 夏令时切换日只有 23 小时,
     /// 但下一次重置仍在当地同一时刻。
     public func dailyRule() -> ResetRule {
-        ResetRule(.calendarDaily(timeZone: timeZone, hour: dailyResetHour, minute: 0),
+        ResetRule(.calendarDaily(timeZone: timeZone, hour: dailyResetHour, minute: dailyResetMinute),
                   // 观测到过真实的归零事件才算确定,否则只是「先当作这个点」
                   provenance: dailyResetHourIsObserved ? .observed : .inferred)
     }
@@ -118,14 +130,18 @@ public struct LearnedDailyReset: Equatable {
     /// 观测到的重置小时(0…23)
     public let hour: Int
 
+    /// 观测到的重置分钟,对齐到 15 分钟(OPT-025)。这一项加上之前学到的结论没有它,按 0 读
+    public let minute: Int
+
     /// 学到它时所在时区的标识符
     public let timeZoneIdentifier: String
 
     /// 当时那次观测的误差范围(相邻采样间隔),越小越准
     public let uncertainty: TimeInterval
 
-    public init(hour: Int, timeZoneIdentifier: String, uncertainty: TimeInterval) {
+    public init(hour: Int, minute: Int = 0, timeZoneIdentifier: String, uncertainty: TimeInterval) {
         self.hour = hour
+        self.minute = minute
         self.timeZoneIdentifier = timeZoneIdentifier
         self.uncertainty = uncertainty
     }
@@ -143,6 +159,8 @@ public enum DailyResetLearner {
     public struct Observation: Equatable {
         /// 观测到的重置小时(0…23)
         public let hour: Int
+        /// 观测到的重置分钟,对齐到 15 分钟
+        public let minute: Int
         /// 相邻两次采样的间隔 —— 越小说明这个时刻定得越准
         public let uncertainty: TimeInterval
     }
@@ -151,11 +169,15 @@ public enum DailyResetLearner {
     /// 用后一条采样的小时数作为重置时刻;采样间隔就是这个判断的误差范围。
     ///
     /// 采样间隔过大时不予采信 —— 半小时前的一次下降,说不准发生在这半小时里的哪一刻。
+    ///
+    /// **只认像归零的下降**(OPT-025):降到前值的一半以下。服务端一次小幅冲正
+    /// (`3.20 → 3.19`)也是下降,从前照收,于是重置时刻被改到冲正发生的那一点,
+    /// 还标成「已观测」。真的重置后几分钟内又花掉一半以上的情况极少,漏掉也只是晚一天学到。
     public static func observe(previous: (value: Double, at: Date),
                                current: (value: Double, at: Date),
                                timeZone: TimeZone,
                                maxUncertainty: TimeInterval = 300) -> Observation? {
-        guard current.value < previous.value else { return nil }
+        guard current.value < previous.value, current.value <= previous.value / 2 else { return nil }
 
         let gap = current.at.timeIntervalSince(previous.at)
         guard gap > 0, gap <= maxUncertainty else { return nil }
@@ -163,9 +185,14 @@ public enum DailyResetLearner {
         var calendar = Calendar(identifier: .gregorian)
         calendar.timeZone = timeZone
 
-        // 重置发生在两次采样之间,取后一条所在的整点作为归属
-        let hour = calendar.component(.hour, from: current.at)
-        return Observation(hour: hour, uncertainty: gap)
+        // 重置发生在两次采样之间,取后一条所在的时刻,分钟**往下对齐到 15 分钟**(OPT-025)。
+        // 从前只取整点:印度时区里 UTC 0 点的重置被学成 05:00,比真实早半小时,
+        // 那半小时里面板套着新周期显示旧用量,低额度告警还会提前占掉当天的去重键。
+        // 采样间隔最多 5 分钟,对齐到刻钟足以吸收这点误差,又不会把 :30 / :45 抹掉
+        let parts = calendar.dateComponents([.hour, .minute], from: current.at)
+        return Observation(hour: parts.hour ?? 0,
+                           minute: (parts.minute ?? 0) / 15 * 15,
+                           uncertainty: gap)
     }
 
     /// 一条新观测应该把已有结论改成什么。
@@ -175,8 +202,8 @@ public enum DailyResetLearner {
     /// 规则:
     /// · 还没有结论 → 采纳。
     /// · 时区变了 → 采纳新的。旧结论的前提已经不成立,留着只会算出错的倒计时。
-    /// · 小时数相同 → 不动。否则每天重置一次就重复写一遍同样的值。
-    /// · 小时数不同 → **采纳新的**。计数器归零是个没有歧义的事件:它现在发生在 14 点,
+    /// · 时刻(时 + 分)相同 → 不动。否则每天重置一次就重复写一遍同样的值。
+    /// · 时刻不同 → **采纳新的**。计数器归零是个没有歧义的事件:它现在发生在 14 点,
     ///   那重置时刻现在就是 14 点 —— 中转站改配置、用户换套餐都会这样。
     ///   固守旧值等于拿上个月的证据否决眼前的观测。
     ///
@@ -185,10 +212,12 @@ public enum DailyResetLearner {
                                  observation: Observation,
                                  timeZone: TimeZone) -> LearnedDailyReset? {
         let fresh = LearnedDailyReset(hour: observation.hour,
+                                      minute: observation.minute,
                                       timeZoneIdentifier: timeZone.identifier,
                                       uncertainty: observation.uncertainty)
 
         guard let stored, stored.applies(in: timeZone) else { return fresh }
-        return stored.hour == observation.hour ? nil : fresh
+        let same = stored.hour == observation.hour && stored.minute == observation.minute
+        return same ? nil : fresh
     }
 }
