@@ -580,6 +580,7 @@ let allSuites: [TestSuite] = [
         ("testStaleFinishDoesNotClearTheNewerInFlightMarker", { RefreshGateTests().testStaleFinishDoesNotClearTheNewerInFlightMarker() }),
         ("testFinishByTheInFlightAccountFreesTheGate", { RefreshGateTests().testFinishByTheInFlightAccountFreesTheGate() }),
         ("testUnconfiguredAccountIsRejected", { RefreshGateTests().testUnconfiguredAccountIsRejected() }),
+        ("testAnEarlierRefreshOfTheSameAccountNoLongerCounts", { RefreshGateTests().testAnEarlierRefreshOfTheSameAccountNoLongerCounts() }),
         ("testSwitchingBackAllowsAFreshRefresh", { RefreshGateTests().testSwitchingBackAllowsAFreshRefresh() }),
     ]),
 

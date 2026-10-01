@@ -278,7 +278,7 @@ claude-relay-service 不公布每天几点重置。CodaPace 先假定是本地�
 
 ```bash
 ./build.sh                      # 构建 CodaPace.app
-swift run CoreTests             # 477 个单元测试
+swift run CoreTests             # 478 个单元测试
 swift Scripts/make-icon.swift   # 重新生成 Resources/AppIcon.icns
 ```
 

@@ -126,31 +126,54 @@ public struct AccountIdentity: Equatable, Hashable {
 ///   「保存新账户」触发的那次刷新会被上一个账户还没结束的刷新挡掉,新账户得干等
 ///   一整个定时周期才出数。两个账户的刷新是两件事,不该互相排队。
 ///
-/// 配套的是 `finish` 按账户核对:旧刷新收尾时不能把后来者的在飞标记抹成空闲。
+/// 配套的是 `finish` 按**这一次**核对:旧刷新收尾时不能把后来者的在飞标记抹成空闲。
+///
+/// **为什么是「这一次」而不是「这个账户」**(OPT-021):A 在飞时切到 B、再切回 A,
+/// 第二次 A 被放行(在飞的是 B,账户不同),于是同一账户有两次刷新同时在飞。
+/// 只按账户核对的话,两次 A 长得一模一样 —— 先发的那次回来照样提交(旧快照盖新快照、
+/// 写一条过时采样),它的收尾还会清掉后发那次的在飞标记。所以每次准入发一张票,
+/// 提交和收尾都认票,不认账户。
+///
+/// 不再委托 `InFlightGate`:那边的规则是「令牌相同才不重入」,而这里的票每次都不同,
+/// 重入仍要按账户挡 —— 两条规则对不上同一个令牌。
 public struct RefreshGate {
 
-    /// 「在飞的是哪一个」这套逻辑是共用的,见 InFlightGate ——
-    /// 设置界面的「测试连接」栽的是同一个跟头,只是那边的身份是用户输入的那段文字。
-    private var gate = InFlightGate<AccountIdentity>()
+    /// 一次刷新的准入凭证。账户之外带一个序号,区分同一账户的先后两次
+    public struct Ticket: Equatable {
+        public let account: AccountIdentity
+        let serial: Int
+    }
+
+    private var inFlight: Ticket?
+    private var issued = 0
 
     public init() {}
 
-    public var isLoading: Bool { gate.isBusy }
+    public var isLoading: Bool { inFlight != nil }
 
     /// 在飞刷新所属的账户;空闲时为 nil
-    public var loadingAccount: AccountIdentity? { gate.token }
+    public var loadingAccount: AccountIdentity? { inFlight?.account }
 
-    /// 能不能为 `account` 开一次刷新。返回 true 时它已被记为在飞的那个。
-    public mutating func begin(_ account: AccountIdentity) -> Bool {
-        // 没配置过的账户根本不该发请求 —— 这一条是刷新独有的,不属于通用的门
-        guard account.isConfigured else { return false }
-        return gate.begin(account)
+    /// 能不能为 `account` 开一次刷新。放行时返回这次的票,它已被记为在飞的那个。
+    public mutating func begin(_ account: AccountIdentity) -> Ticket? {
+        // 没配置过的账户根本不该发请求
+        guard account.isConfigured else { return nil }
+        // 同账户不重入;换账户放行
+        guard inFlight?.account != account else { return nil }
+        issued += 1
+        let ticket = Ticket(account: account, serial: issued)
+        inFlight = ticket
+        return ticket
     }
 
-    /// 一次刷新结束。只有 `account` 仍是在飞的那个才把门空出来 ——
-    /// 否则旧账户的收尾会清掉新账户正在进行的刷新标记,让 UI 的加载态和实际不符。
-    public mutating func finish(_ account: AccountIdentity) {
-        gate.finish(account)
+    /// 这次刷新还算不算数:在它之后没有别的刷新被放行过。提交前必须问
+    public func isCurrent(_ ticket: Ticket) -> Bool {
+        inFlight == ticket
+    }
+
+    /// 一次刷新结束。只有 `ticket` 仍是在飞的那张才把门空出来
+    public mutating func finish(_ ticket: Ticket) {
+        if inFlight == ticket { inFlight = nil }
     }
 }
 

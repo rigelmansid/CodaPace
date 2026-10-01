@@ -194,8 +194,8 @@ final class UsageService: ObservableObject {
         // 全流程只认这一份身份:两个请求、落库、通知都用它。
         // 中途再去读 Config 就会出现一次刷新横跨两个账户 —— 那正是这里要防的事。
         let account = Config.account
-        guard gate.begin(account) else { return }
-        defer { gate.finish(account) }
+        guard let ticket = gate.begin(account) else { return }
+        defer { gate.finish(ticket) }
 
         do {
             // 协议细节全在适配器里:通用层只说「给这个账户拉一次用量」。
@@ -211,7 +211,10 @@ final class UsageService: ObservableObject {
             // 提交前校验身份:上面的 await 期间用户可能已经换了账户。
             // 那这份结果属于上一个账户 —— 既不能显示,也不能写进新账户的历史,
             // 更不能拿它去触发新账户的通知。整份丢掉,新账户自己那次刷新会补上。
-            guard Config.account == account else { return }
+            //
+            // 光比账户不够(OPT-021):A → B → A 之后同一账户有两次在飞,先发的那次
+            // 账户也对得上。所以还要问这张票是不是最新的那张
+            guard gate.isCurrent(ticket), Config.account == account else { return }
 
             // fetchedAt 是适配器在拿到数据之后打的点,倒计时和 pace 都按它算
             now = built.fetchedAt
@@ -225,8 +228,8 @@ final class UsageService: ObservableObject {
             // 该不该发通知由 Core 的 AlertPolicy 判断,这里只是触发点
             Notifier.shared.process(built, now: now, account: account)
         } catch {
-            // 同样要校验:旧账户的失败不该盖在新账户头上显示成 Offline
-            guard Config.account == account else { return }
+            // 同样要校验:旧账户(或同账户更早那次)的失败不该盖在新结果头上显示成 Offline
+            guard gate.isCurrent(ticket), Config.account == account else { return }
 
             // 刷新失败时**保留**上一次的快照,只把错误记下来。
             // 菜单栏留着旧数字,总好过突然空白。

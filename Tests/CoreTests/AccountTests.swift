@@ -62,7 +62,7 @@ final class RefreshGateTests: XCTestCase {
 
     func testBeginMarksTheAccountAsInFlight() {
         var gate = RefreshGate()
-        XCTAssertTrue(gate.begin(accountA))
+        XCTAssertNotNil(gate.begin(accountA))
         XCTAssertTrue(gate.isLoading)
         XCTAssertEqual(gate.loadingAccount, accountA)
     }
@@ -70,8 +70,8 @@ final class RefreshGateTests: XCTestCase {
     /// 定时刷新、唤醒补刷、手动刷新会撞在一起 —— 同一个账户只放行一次
     func testSameAccountDoesNotReenter() {
         var gate = RefreshGate()
-        XCTAssertTrue(gate.begin(accountA))
-        XCTAssertFalse(gate.begin(accountA))
+        XCTAssertNotNil(gate.begin(accountA))
+        XCTAssertNil(gate.begin(accountA))
     }
 
     /// 这条是这次修的 bug:旧实现用一个不区分账户的布尔量拦门,
@@ -79,8 +79,8 @@ final class RefreshGateTests: XCTestCase {
     /// 新账户要干等一整个定时周期才出数。
     func testDifferentAccountIsLetThroughWhileAnotherIsInFlight() {
         var gate = RefreshGate()
-        XCTAssertTrue(gate.begin(accountA))
-        XCTAssertTrue(gate.begin(accountB))
+        XCTAssertNotNil(gate.begin(accountA))
+        XCTAssertNotNil(gate.begin(accountB))
         XCTAssertEqual(gate.loadingAccount, accountB)
     }
 
@@ -88,29 +88,28 @@ final class RefreshGateTests: XCTestCase {
     /// 在飞标记抹成空闲 —— 那样 UI 的加载态和实际不符,也会让同账户的重入判断失效。
     func testStaleFinishDoesNotClearTheNewerInFlightMarker() {
         var gate = RefreshGate()
-        _ = gate.begin(accountA)
-        _ = gate.begin(accountB)
+        guard let a = gate.begin(accountA), let b = gate.begin(accountB) else { return XCTFail("没放行") }
 
-        gate.finish(accountA)            // A 的请求这时才回来
+        gate.finish(a)            // A 的请求这时才回来
         XCTAssertTrue(gate.isLoading)
         XCTAssertEqual(gate.loadingAccount, accountB)
 
-        gate.finish(accountB)
+        gate.finish(b)
         XCTAssertFalse(gate.isLoading)
     }
 
     func testFinishByTheInFlightAccountFreesTheGate() {
         var gate = RefreshGate()
-        _ = gate.begin(accountA)
-        gate.finish(accountA)
+        guard let a = gate.begin(accountA) else { return XCTFail("没放行") }
+        gate.finish(a)
         XCTAssertFalse(gate.isLoading)
-        XCTAssertTrue(gate.begin(accountA))
+        XCTAssertNotNil(gate.begin(accountA))
     }
 
     /// 没配置过的账户不该发起请求
     func testUnconfiguredAccountIsRejected() {
         var gate = RefreshGate()
-        XCTAssertFalse(gate.begin(.none))
+        XCTAssertNil(gate.begin(.none))
         XCTAssertFalse(gate.isLoading)
     }
 
@@ -120,8 +119,28 @@ final class RefreshGateTests: XCTestCase {
         var gate = RefreshGate()
         _ = gate.begin(accountA)
         _ = gate.begin(accountB)
-        XCTAssertTrue(gate.begin(accountA))
+        XCTAssertNotNil(gate.begin(accountA))
         XCTAssertEqual(gate.loadingAccount, accountA)
+    }
+
+    /// OPT-021:A1 在飞时切到 B、再切回 A,A2 被放行。A1 账户也对得上,但它已经不算数 ——
+    /// 不能提交,它的收尾也不能清掉 A2 的在飞标记。两次 A 按任意顺序回来都一样
+    func testAnEarlierRefreshOfTheSameAccountNoLongerCounts() {
+        var gate = RefreshGate()
+        guard let a1 = gate.begin(accountA),
+              gate.begin(accountB) != nil,
+              let a2 = gate.begin(accountA) else { return XCTFail("没放行") }
+
+        XCTAssertFalse(gate.isCurrent(a1))
+        XCTAssertTrue(gate.isCurrent(a2))
+
+        gate.finish(a1)                    // A1 后回来
+        XCTAssertTrue(gate.isLoading)
+        XCTAssertTrue(gate.isCurrent(a2))
+        XCTAssertNil(gate.begin(accountA), "A2 还在飞,同账户不该再放行")
+
+        gate.finish(a2)
+        XCTAssertFalse(gate.isLoading)
     }
 }
 

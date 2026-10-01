@@ -73,9 +73,18 @@ final class Notifier {
             return
         }
 
-        for alert in alerts {
+        for (index, alert) in alerts.enumerated() {
+            // 每条投递前重验(OPT-022)。上面等权限、上一条等系统回执,都跨过了 await ——
+            // 首次弹授权框时用户可能盯着它好一会儿,期间切了账户或关了通知。
+            // 从前只在账本那一步核对身份,而那时系统已经收下了:旧账户的通知照样弹出来。
+            // 开关更是只在最初的 process 里看过一次
+            guard Config.notificationsEnabled,
+                  Config.account.notificationNamespace == namespace else {
+                abandon(Array(alerts[index...]), namespace: namespace)
+                return
+            }
             do {
-                try await UNUserNotificationCenter.current().add(request(for: alert))
+                try await UNUserNotificationCenter.current().add(request(for: alert, namespace: namespace))
                 // 到这一步才算发过
                 guard update(namespace: namespace, { $0.confirm(alert) }) else { return }
             } catch {
@@ -124,7 +133,7 @@ final class Notifier {
 
     // MARK: 内容
 
-    private func request(for alert: QuotaAlert) -> UNNotificationRequest {
+    private func request(for alert: QuotaAlert, namespace: String) -> UNNotificationRequest {
         let language = Localization.shared.language
         let quota = alert.title.text(language)
         let percent = Fmt.percent(alert.remainingRatio)
@@ -143,7 +152,10 @@ final class Notifier {
         }
         content.sound = .default
 
-        return UNNotificationRequest(identifier: alert.dedupeKey, content: content, trigger: nil)
+        // identifier 带上账户命名空间(OPT-022):两个中转站账户的日额度都在 0 点重置时
+        // dedupeKey 完全相同,系统会拿后一个账户的通知原地顶掉前一个的
+        return UNNotificationRequest(identifier: "\(namespace)|\(alert.dedupeKey)",
+                                     content: content, trigger: nil)
     }
 
     // MARK: 账本存取
