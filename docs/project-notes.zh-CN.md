@@ -301,8 +301,8 @@ XCTAssertEqual(points.first?.value, 42)   // 空数组时正常报失败，不�
 
 **下次开工第一件事**（用户 2026-09-30 要求）：先向用户报告现状，再动手 —— 最新进展、本地 git 状态（`git status -sb`、`git log --oneline -5`）、GitHub 状态（`gh release view --json tagName,publishedAt`，以及 origin 是否同步）、项目进行到哪里，以及下面「悬而未决」里待确认、待执行的各有几项。数字要现查，不要照抄本节。
 
-- **最新发布仍是 v2.2**。第二轮审查的修复（5 个提交，`9194f6e`…）已推到 origin/main，**没有发版**：用户 2026-09-30 决定先不发 2.3。`Info.plist` 版本号仍是 2.2。
-- **本机当前运行的是 `build/` 里含第二轮修复的开发构建**，不是 `/Applications` 里的正式版 2.2。构建新版前先退出；要换回正式版就退出后 `open /Applications/CodaPace.app`。
+- **v2.3 已发布**（2026-10-01，用户要求），包含第二轮审查的全部修复。发完用 `curl` 核对 `releases/latest` 是 v2.3，下载的 zip 哈希与说明一致（`a9a26c5e…`）。说明原稿在 `build/release-notes-2.3.md`。
+- **本机 `/Applications` 里运行的仍是正式版 2.2**（用户自己换回去的），还没装 2.3。用户要升级时，照 Release 说明「先退出、删旧版、再装」。
 - **发版流程**（本机已装 `gh` 并登录）：改 `Info.plist` 两个版本键 → 跑测试 → 退出开发版、`./build.sh` → `ditto -c -k --keepParent build/CodaPace.app build/CodaPace-arm64.zip`（附件名固定，README 的安装命令靠它）→ `gh release create vX.Y build/CodaPace-arm64.zip --target main --notes-file …`。说明照 v2.0 / v2.1 / v2.2 的中英双语格式，末尾附 SHA-256。发完用 `curl` 请求 `releases/latest` 核对 tag，并下载 zip 核对哈希。验证更新提醒：用 PlistBuddy 只把 `build/` 那份的版本改低、`codesign --force --sign -` 后打开，验完重新 `./build.sh`。
 
 ### 这一轮（2026-09-29 / 30）：第二轮全项目审查
@@ -331,7 +331,6 @@ XCTAssertEqual(points.first?.value, 42)   // 空数组时正常报失败，不�
 
 **待用户确认 / 决定：**
 
-- **何时发 2.3**：第二轮修复都在 main 上，还没发版。
 - **sub2api 的 `usage.total` 是否每种 key 都有**（OPT-015 末尾）：若某种形态始终不返回，那类账户按现在的判定一条历史都不落。需要真实账户或重开实验室核对。
 - **OPT-018 授权框反复弹**：钥匙串被拒后，每个刷新周期仍会再弹一次。现在只是如实报出原因；要彻底解决得记住「被拒过」并暂停重读。等用户实机觉得烦再做。
 
