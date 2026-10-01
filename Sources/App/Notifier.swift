@@ -45,7 +45,12 @@ final class Notifier {
         ledger = book
         guard !claimed.isEmpty else { return }
 
-        Task { await deliver(claimed, namespace: book.namespace) }
+        // 存了不止一个账户时,副标题写上是哪个(OPT-028)—— 否则两个账户的同名额度
+        // 发来的通知长得一模一样。只有一个账户时不写,多一行字没有信息量
+        let archive = Config.archive
+        let subtitle = archive.entries.count > 1 ? archive.nickname(for: account) : nil
+
+        Task { await deliver(claimed, namespace: book.namespace, subtitle: subtitle) }
     }
 
     /// 用户在设置里重新打开通知时清当前账户的账,好让这个周期能再提醒一次
@@ -66,7 +71,7 @@ final class Notifier {
 
     // MARK: 投递
 
-    private func deliver(_ alerts: [QuotaAlert], namespace: String) async {
+    private func deliver(_ alerts: [QuotaAlert], namespace: String, subtitle: String?) async {
         guard await isAuthorized() else {
             // 被拒:**不留"已发过"的记录**,权限恢复后同周期内还能补发
             abandon(alerts, namespace: namespace)
@@ -84,8 +89,10 @@ final class Notifier {
                 return
             }
             do {
-                try await UNUserNotificationCenter.current().add(request(for: alert, namespace: namespace))
-                // 到这一步才算发过
+                try await UNUserNotificationCenter.current().add(request(for: alert, namespace: namespace, subtitle: subtitle))
+                // 到这一步才算发过。面板上那句错误也到此为止 —— 它现在会显示出来(OPT-028),
+                // 不清的话一次失败会一直挂在那里
+                lastError = nil
                 guard update(namespace: namespace, { $0.confirm(alert) }) else { return }
             } catch {
                 lastError = error.localizedDescription
@@ -133,7 +140,7 @@ final class Notifier {
 
     // MARK: 内容
 
-    private func request(for alert: QuotaAlert, namespace: String) -> UNNotificationRequest {
+    private func request(for alert: QuotaAlert, namespace: String, subtitle: String?) -> UNNotificationRequest {
         let language = Localization.shared.language
         let quota = alert.title.text(language)
         let percent = Fmt.percent(alert.remainingRatio)
@@ -151,6 +158,7 @@ final class Notifier {
             content.body = L10n.format(.notifyPaceBodyFormat, language, percent, money)
         }
         content.sound = .default
+        if let subtitle { content.subtitle = subtitle }
 
         // identifier 带上账户命名空间(OPT-022):两个中转站账户的日额度都在 0 点重置时
         // dedupeKey 完全相同,系统会拿后一个账户的通知原地顶掉前一个的

@@ -217,7 +217,8 @@ struct HistoryView: View {
                 QuotaChart(points: model.quotaPoints,
                            connectors: model.quotaConnectors,
                            gaps: model.gaps,
-                           showsAxes: true)
+                           showsAxes: true,
+                           labelsHours: days == 1)
                     .frame(height: 200)
 
                 // 曲线画得出来,不代表它画全了(OPT-012)。
@@ -237,7 +238,10 @@ struct HistoryView: View {
                 ChartPlaceholder(message: l10n.t(.historyNoLimitMessage))
                     .frame(height: 200)
             } else {
-                ChartPlaceholder(message: l10n.t(.historyNoSamplesMessage))
+                // 库坏了(打不开、迁移失败)时,「还没有采样」是假话 —— 用户会以为 app 没在跑(OPT-028)
+                ChartPlaceholder(message: HistoryRecorder.shared.lastError
+                                    .map { "\(l10n.t(.errHistoryStore)):\($0)" }
+                                    ?? l10n.t(.historyNoSamplesMessage))
                     .frame(height: 200)
             }
         }
@@ -254,7 +258,9 @@ struct HistoryView: View {
                          : l10n.f(.historyTokensTotalFormat, Fmt.count(total)))
 
             if model.tokenBars.isEmpty {
-                ChartPlaceholder(message: l10n.t(.historyNoTokensMessage))
+                // 不报累计 token 的那家,等多久都不会有数据 —— 别说「两次刷新后就有」(OPT-030)
+                ChartPlaceholder(message: l10n.t(ProviderRegistry.adapter(for: Config.account)
+                    .capabilities.contains(.cumulativeTokens) ? .historyNoTokensMessage : .historyTokensNotReported))
                     .frame(height: 160)
             } else {
                 TokenChart(bars: model.tokenBars, showsAxes: true)

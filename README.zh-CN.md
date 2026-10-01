@@ -38,7 +38,7 @@
 ## 为什么是 CodaPace
 
 - **看速度，不只看用量。** 「还剩 61%」本身说明不了什么，要看这个周期还剩多少时间。早上 9 点这很宽裕，
-  晚上 11 点就无所谓了。CodaPace 把两者放在一起比：`pace = 剩余额度% − 剩余时间%`。为负就是会在重置前用完。
+  晚上 11 点就无所谓了。CodaPace 把两者放在一起比：`pace = 剩余额度% − 剩余时间%`。为负就是：照本周期到目前为止的平均速度用下去，会在重置前用完。
 - **给的是决定，不是统计。** 这个判断告诉你：那个大重构是现在就开，还是等重置之后。
 - **菜单栏里两个事实。** 数字是还剩多少，下面那行小字是用得快不快（*正常速度* / *超速*）。
   外环是额度，内环是时间。
@@ -232,14 +232,16 @@ CodaPace 一贯拒绝这样做：
 <details>
 <summary><b>CodaPace 存了哪些数据，会发到哪里？</b></summary>
 
-- **网络：** 访问你填的中转站网址，tu-zi 账户则访问 `coding.tu-zi.com`；另外每天访问一次 `api.github.com`
+- **网络：** 只访问你配置的那家服务：中转站网址、tu-zi 账户的 `coding.tu-zi.com`，或你的 sub2api / claude-code-hub
+  站点；另外每天访问一次 `api.github.com`
   检查有没有新版本。这个检查是匿名查询本项目的最新版本号，不带任何关于你或你账户的信息。
   没有统计上报，不连其他任何地址。
 - **偏好设置**（`~/Library/Preferences/com.hesher.codapace.plist`）：中转站网址和 `apiId`、
   已存档账户列表（名字和标识，不含 key），以及显示设置。
-- **钥匙串：** tu-zi 的 API Key，服务名为 `CodaPace`，只存在这台 Mac 上。
+- **钥匙串：** tu-zi、sub2api、claude-code-hub 的 API Key，以及 claude-code-hub 的登录会话，服务名为 `CodaPace`，
+  只存在这台 Mac 上。测试连接什么都不存；点保存时才存 key，删除存档时一并删掉（没存档的账户在切走时删掉）。
 - **历史**（`~/Library/Application Support/CodaPace/History.sqlite`）：按「服务 + 账户标识」的哈希分区，
-  原始标识从不写进数据库。
+  原始标识从不写进数据库。采样保留 90 天，按天的 token 总量一直保留。
 </details>
 
 <details>
@@ -286,7 +288,7 @@ swift Scripts/make-icon.swift   # 重新生成 Resources/AppIcon.icns
 <summary><b>目录结构</b></summary>
 
 ```
-Sources/Core/    纯逻辑 —— 不依赖 AppKit / SwiftUI，全部有单元测试
+Sources/Core/    纯逻辑 —— 不依赖 AppKit / SwiftUI，由单元测试覆盖
 Sources/App/     SwiftUI 视图、菜单栏绘制、网络、通知、钥匙串
 Tests/CoreTests/ 测试框架与用例
 Scripts/         图标生成器

@@ -135,6 +135,7 @@ public enum LangKey: String, CaseIterable {
     case errHistoryStore
     case setupMustTestGuess, errNotThisProtocolFormat
     case errKeychainFormat, errKeychainUnknownReason, errKeychainMalformed
+    case chartTokensNotReported, historyTokensNotReported
 }
 
 // MARK: - 查表
@@ -339,9 +340,10 @@ public enum L10n {
         .stateNotConfigured: [
             .zhHans: "尚未配置", .zhHant: "尚未設定", .en: "Not configured"],
         .stateNotConfiguredDetail: [
-            .zhHans: "填入中转站的用量统计页面网址后才能读取数据。",
-            .zhHant: "填入中轉站的用量統計頁面網址後才能讀取資料。",
-            .en: "Paste your relay’s usage-stats page URL to start reading data."],
+            // 旧文案只教中转站那一家;现在先粘服务地址(EXT-011),和设置窗口同一个说法(OPT-030)
+            .zhHans: "粘贴你在编程工具里填的服务地址(Base URL)后才能读取数据。",
+            .zhHant: "貼上你在程式設計工具裡填的服務位址(Base URL)後才能讀取資料。",
+            .en: "Paste the service address (Base URL) your coding tool uses to start reading data."],
         .stateOpenSetup: [
             .zhHans: "打开配置…", .zhHant: "開啟設定…", .en: "Open setup…"],
         .menuBarNotConfigured: [
@@ -449,9 +451,11 @@ public enum L10n {
             .zhHant: "網址裡的 apiId 只能檢視用量,不能發出請求,也拿不到你的 API Key。",
             .en: "The apiId in that URL can only read usage — it can’t make requests or reveal your API key."],
         .setupSafetySecret: [
-            .zhHans: "这是一把能发起真实调用的密钥。它只存在本机钥匙串里,不会上传,也只用于查询你的额度。",
-            .zhHant: "這是一把能發出真實呼叫的金鑰。它只存在本機鑰匙圈裡,不會上傳,也只用於查詢你的額度。",
-            .en: "This key can make real API calls. It is stored only in your Mac’s Keychain, never uploaded, and is used only to read your quota."],
+            // 「不会上传」说过头了:查询时它就在请求头里发往这家服务(OPT-030)。
+            // 要说清的是它**只**发往哪里
+            .zhHans: "这是一把能发起真实调用的密钥。它只存在本机钥匙串里,只发给这家服务用来查询你的额度,不会发往别处。",
+            .zhHant: "這是一把能發出真實呼叫的金鑰。它只存在本機鑰匙圈裡,只傳給這家服務用來查詢你的額度,不會傳往別處。",
+            .en: "This key can make real API calls. It is stored only in your Mac’s Keychain and sent only to this service to read your quota — nowhere else."],
         .setupTest: [
             .zhHans: "测试连接", .zhHant: "測試連線", .en: "Test connection"],
         .setupSave: [
@@ -494,9 +498,10 @@ public enum L10n {
             .zhHans: "服务器没有返回数据", .zhHant: "伺服器沒有回傳資料",
             .en: "The server returned no data"],
         .errUnparsable: [
-            .zhHans: "响应格式无法解析,请确认网址指向的是中转站统计接口",
-            .zhHant: "回應格式無法解析,請確認網址指向的是中轉站統計介面",
-            .en: "Couldn’t parse the response — check that the URL points to the relay’s stats API"],
+            // 四家共用这一句,不该只点名中转站(OPT-030)
+            .zhHans: "响应格式无法解析,请确认地址指向的是对应的服务",
+            .zhHant: "回應格式無法解析,請確認位址指向的是對應的服務",
+            .en: "Couldn’t parse the response — check that the address points to the right service"],
         .errApiFailed: [
             .zhHans: "接口返回失败,apiId 可能不正确", .zhHant: "介面回傳失敗,apiId 可能不正確",
             .en: "The API reported a failure — the apiId may be wrong"],
@@ -607,6 +612,14 @@ public enum L10n {
         .errKeychainFormat: [
             .zhHans: "钥匙串操作失败:%@", .zhHant: "鑰匙圈操作失敗:%@",
             .en: "Keychain error: %@"],
+        // 这家根本不报累计 token(tu-zi、claude-code-hub):「还没有数据、再等等」是错的承诺(OPT-030)
+        .chartTokensNotReported: [
+            .zhHans: "这家服务不报 token 用量", .zhHant: "這家服務不回報 token 用量",
+            .en: "This service doesn’t report tokens"],
+        .historyTokensNotReported: [
+            .zhHans: "这家服务不报累计 token 用量,所以没有按天数据。",
+            .zhHant: "這家服務不回報累計 token 用量,所以沒有按日資料。",
+            .en: "This service doesn’t report cumulative token usage, so there’s no daily data."],
         .errKeychainUnknownReason: [
             .zhHans: "未知原因", .zhHant: "未知原因", .en: "unknown reason"],
         .errKeychainMalformed: [

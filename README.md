@@ -38,7 +38,8 @@ to reach the next reset without running dry.
 
 - **Pace, not just usage.** *61% remaining* means nothing until you know how much of the period is
   left. At 9 a.m. it's comfortable; at 11 p.m. it's irrelevant. CodaPace puts the two side by side:
-  `pace = quota remaining % − time remaining %`. Negative means you'll run out before the reset.
+  `pace = quota remaining % − time remaining %`. Negative means that at your average rate so far
+  this period, you'll run out before the reset.
 - **A decision, not a statistic.** The verdict tells you whether to start the big refactor now or
   wait for the reset.
 - **Two facts in the menu bar.** The number is how much is left; the caption is how fast it's going
@@ -262,15 +263,20 @@ see the prompt once per saved key after each update.
 <details>
 <summary><b>What data does CodaPace store, and where does it send it?</b></summary>
 
-- **Network:** the relay URL you entered, or `coding.tu-zi.com` for tu-zi accounts, plus
+- **Network:** only the service you configured — the relay URL, `coding.tu-zi.com` for tu-zi
+  accounts, or your sub2api / claude-code-hub site — plus
   `api.github.com` once a day to check for a new version. The update check is an anonymous request
   for this project's latest release and carries nothing about you or your accounts. No analytics,
   no other hosts.
 - **Preferences** (`~/Library/Preferences/com.hesher.codapace.plist`): the relay URL and `apiId`,
   the saved-account list (names and identifiers, no keys), and your display settings.
-- **Keychain:** tu-zi API keys, under the service name `CodaPace`, readable only on this Mac.
+- **Keychain:** API keys for tu-zi, sub2api and claude-code-hub, plus the claude-code-hub login
+  session, under the service name `CodaPace`, readable only on this Mac. Test connection saves
+  nothing; a key is stored when you save, and removed when you delete its saved account (or switch
+  away from an account you didn't save).
 - **History** (`~/Library/Application Support/CodaPace/History.sqlite`): partitioned by a hash of
-  the service and account ID. The raw identifier is never written to the database.
+  the service and account ID. The raw identifier is never written to the database. Samples are
+  kept for 90 days; daily token totals are kept.
 </details>
 
 <details>
@@ -321,7 +327,7 @@ swift Scripts/make-icon.swift   # regenerate Resources/AppIcon.icns
 <summary><b>Project layout</b></summary>
 
 ```
-Sources/Core/    pure logic — no AppKit, no SwiftUI, fully unit-tested
+Sources/Core/    pure logic — no AppKit, no SwiftUI, covered by the unit tests
 Sources/App/     SwiftUI views, menu bar rendering, networking, notifications, Keychain
 Tests/CoreTests/ test harness and cases
 Scripts/         icon generator

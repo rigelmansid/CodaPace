@@ -130,6 +130,10 @@ struct QuotaChart: View {
     let gaps: [GapSpan]
     var showsAxes = false
 
+    /// 横轴按小时标,而不是按日期(OPT-028)。历史窗口选「24 小时」时用:
+    /// 那时所有刻度都落在同一两天里,只标月/日等于一个刻度都没标
+    var labelsHours = false
+
     private var indexed: [IndexedPoint] {
         points.enumerated().map { IndexedPoint(id: $0.offset, point: $0.element) }
     }
@@ -157,7 +161,11 @@ struct QuotaChart: View {
                 .chartXAxis {
                     AxisMarks { _ in
                         AxisGridLine()
-                        AxisValueLabel(format: .dateTime.month().day())
+                        if labelsHours {
+                            AxisValueLabel(format: .dateTime.hour())
+                        } else {
+                            AxisValueLabel(format: .dateTime.month().day())
+                        }
                     }
                 }
         } else {

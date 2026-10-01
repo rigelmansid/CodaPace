@@ -73,7 +73,8 @@ struct GaugeRow: View {
             }
 
             if gauge.unlimited {
-                Text("\(l10n.t(.unlimited)) · \(l10n.f(.usedAmountFormat, Fmt.money2(gauge.used)))")
+                // 按这条额度自己的单位排版(OPT-028)—— 写死 money2 会给单位未知的额度打上 `$`
+                Text("\(l10n.t(.unlimited)) · \(l10n.f(.usedAmountFormat, gauge.amount(gauge.used)))")
                     .font(.system(size: 11))
                     .foregroundStyle(.secondary)
             } else {
@@ -133,7 +134,7 @@ struct GaugeRow: View {
                 }
             }
             Spacer()
-            Text("\(Fmt.money2(gauge.used)) / \(Fmt.money2(gauge.limit))")
+            Text("\(gauge.amount(gauge.used)) / \(gauge.amount(gauge.limit))")
                 .monospacedDigit()
         }
         .font(.system(size: 10))
@@ -463,7 +464,10 @@ struct PopoverView: View {
                 } else if history.quotaSamplesInRange > 0 {
                     ChartPlaceholder(message: l10n.t(.chartNoPercentage))
                 } else {
-                    ChartPlaceholder(message: l10n.t(.chartNoSamples))
+                    // 同历史窗口:库坏了就说库坏了,不说「还没有采样」(OPT-028)
+                    ChartPlaceholder(message: HistoryRecorder.shared.lastError
+                                        .map { "\(l10n.t(.errHistoryStore)):\($0)" }
+                                        ?? l10n.t(.chartNoSamples))
                 }
             }
 
@@ -471,7 +475,9 @@ struct PopoverView: View {
 
             miniChart(title: l10n.t(.chartTokenUsage), detail: l10n.t(.chartLast30d)) {
                 if history.tokenBars.isEmpty {
-                    ChartPlaceholder(message: l10n.t(.chartNoTokenDays))
+                    // 不报累计 token 的那家,等多久都不会有数据 —— 别说「还没有」(OPT-030)
+                    ChartPlaceholder(message: l10n.t(ProviderRegistry.adapter(for: Config.account)
+                        .capabilities.contains(.cumulativeTokens) ? .chartNoTokenDays : .chartTokensNotReported))
                 } else {
                     TokenChart(bars: history.tokenBars)
                 }
@@ -543,9 +549,22 @@ struct PopoverView: View {
                         // 候选来自**当前快照实际有哪些额度**,不再是固定四项(EXT-001)——
                         // 供应商各报各的,枚举装不下。离线或还没拉到时列表为空,
                         // 此时只剩「自动」可选,而那本来就是拿不到额度时唯一说得通的选项。
-                        Picker("", selection: $service.menuBarSource) {
+                        //
+                        // 选中的那条不在列表里(默认的「daily」在 sub2api / CCH 下就没有,
+                        // 离线时列表为空,或那条变成了不限额)时,下拉框会显示空白,
+                        // 而菜单栏其实已经退回自动(OPT-028)。所以显示的是**实际生效的**那个选项;
+                        // 存着的偏好不动,那条额度回来了照样生效。不限额的那几条也不列 ——
+                        // 选了它同样会悄悄退回自动
+                        Picker("", selection: Binding(
+                            get: {
+                                guard case .fixed(let id) = service.menuBarSource,
+                                      service.snapshot?.limited.contains(where: { $0.id == id }) == true
+                                else { return MenuBarSource.auto }
+                                return service.menuBarSource
+                            },
+                            set: { service.menuBarSource = $0 })) {
                             Text(l10n.t(.sourceAuto)).tag(MenuBarSource.auto)
-                            ForEach(service.snapshot?.gauges ?? [], id: \.id) { bucket in
+                            ForEach(service.snapshot?.limited ?? [], id: \.id) { bucket in
                                 Text(bucket.label(l10n.language))
                                     .tag(MenuBarSource.fixed(bucketID: bucket.id))
                             }
@@ -578,6 +597,17 @@ struct PopoverView: View {
                             .toggleStyle(.switch)
                             .controlSize(.mini)
                             .labelsHidden()
+                    }
+
+                    // 投递失败(权限被拒之外的系统错误)从前只记不显示(OPT-028):
+                    // 开关开着,通知却一条都不来,用户无从知道为什么
+                    if service.notificationsEnabled, let error = Notifier.shared.lastError {
+                        Text(error)
+                            .font(.system(size: 10))
+                            .foregroundStyle(.orange)
+                            .fixedSize(horizontal: false, vertical: true)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(.horizontal, Metrics.hPad)
                     }
 
                     groupHeader(l10n.t(.groupAccount))

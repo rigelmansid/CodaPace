@@ -23,7 +23,8 @@ final class HistoryRecorder {
     /// 采样只留 90 天,一天最多清一次(OPT-029)
     private var retention = HistoryRetention()
 
-    /// 最近一次存储错误。历史记录坏掉不该影响主功能,只在面板上提一句。
+    /// 最近一次存储错误。历史记录坏掉不该影响主功能,只在面板上提一句 ——
+    /// 面板和历史窗口在「没有采样」时显示它(OPT-028),否则用户只看到「还没有采样」
     private(set) var lastError: String?
 
     // MARK: 记录
