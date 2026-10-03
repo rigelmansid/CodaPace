@@ -651,7 +651,7 @@ else                           → 「这段时间还没有采样」
 - **位置：** [Config.swift:245](../Sources/App/Config.swift#L245)、[Config.swift:289](../Sources/App/Config.swift#L289)
 - **证据：** 静态核对（本轮 App 层复查）。
 
-**问题与影响：** 两处都是 `try?`。重建后读旧条目会弹授权框（见项目须知「钥匙串可用」）；用户拒绝、只允许一次或钥匙串锁定时，面板提示「缺少密钥，请重新填写」—— 方向是错的，而且每轮刷新都会再弹一次。
+**问题与影响：** 两处都是 `try?`。重建后读旧条目会弹授权框（见 project-notes §2「钥匙串可用」、pitfalls 坑 2）；用户拒绝、只允许一次或钥匙串锁定时，面板提示「缺少密钥，请重新填写」—— 方向是错的，而且每轮刷新都会再弹一次。
 
 **建议：** 区分「条目不存在」与其他错误，后者如实报出钥匙串的原因。钥匙串错误文案（目前写死中文，[KeychainStore.swift:32](../Sources/App/KeychainStore.swift#L32)）一并改走 L10n。
 
@@ -900,5 +900,5 @@ Core 新增 `HistoryRetention`（在 `HistoryWriter.swift`）：到期才清，�
 - **provider backlog**：开头加一段注，说明「均待实现」「未实现」「已确定采用 tooltip / 中性色」是原案、保留作历史，现状以进度总览和各条记录为准；EXT-011 开头和末尾两处各补一句现状。原文不删。
 
 **未做**：
-- **截图没重拍**：`settings.png`、`popover.png` 要实机截，替换前给用户看。已记进项目须知「已知的文档过时点」。
+- **截图没重拍**：`settings.png`、`popover.png` 要实机截，替换前给用户看。已记进 project-notes「已知的文档过时点」。
 - **GitHub 仓库 About 不用改**：支持的服务和定位都没变。

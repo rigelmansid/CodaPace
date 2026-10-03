@@ -292,7 +292,7 @@ Sources/Core/    纯逻辑 —— 不依赖 AppKit / SwiftUI，由单元测试�
 Sources/App/     SwiftUI 视图、菜单栏绘制、网络、通知、钥匙串
 Tests/CoreTests/ 测试框架与用例
 Scripts/         图标生成器
-docs/            项目须知与设计 backlog
+docs/            开发记录与设计 backlog
 ```
 
 `Package.swift` 只暴露 `Sources/Core`，所以逻辑可以脱离界面测试。`build.sh` 把 `Core` 和 `App` 编成同一个模块。

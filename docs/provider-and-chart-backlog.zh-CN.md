@@ -76,7 +76,7 @@
 
 本条分四阶段做，每阶段自己能编译、能跑、能提交。拆分的理由是上一次攒了两周未提交的教训。
 
-- **阶段 0 · 钥匙串可行性**：ad-hoc 签名、无 provisioning profile 的 app 能用文件版钥匙串（见 `KeychainStore.swift` 与项目须知）。这是整条计划唯一能否决后面全部的硬未知，所以先打掉——`.secret` 级凭据没地方存的话，需要 API Key 的供应商一家都接不了。
+- **阶段 0 · 钥匙串可行性**：ad-hoc 签名、无 provisioning profile 的 app 能用文件版钥匙串（见 `KeychainStore.swift` 与 project-notes §2）。这是整条计划唯一能否决后面全部的硬未知，所以先打掉——`.secret` 级凭据没地方存的话，需要 API Key 的供应商一家都接不了。
 - **阶段 1 · 额度桶进显示路径**：`Gauge` + `QuotaKind` → `QuotaBucket`，新增 `QuotaUnit`（含 `.unknown`）与 `BucketTitle`（本地化名 / 供应商原名两态）。菜单栏自动选择的判据从「排除叫 `window` 的那条」换成「周期短于 `QuotaThresholds.volatileWindow`」——**额度名是供应商的事，通用层不该认识任何一条具体额度的名字**（不变量 6）。
 - **阶段 2 · 历史表改高表**：`samples` 的四个固定额度列 → `quota_samples`（`account_key, ts, bucket_id, used, limit_value`），`user_version` v3 → v4 逐行展开。`Sample` 改为 `{at, allTokens, requests, quotas: [String: QuotaReading]}`；阶段 1 那三处 `⚠︎` 桥接全部删除。
 - **阶段 3 · tu-zi 适配器**：`TuziProvider.swift`。新增 `Connection`（身份 + 凭据，一次取齐传进适配器）、`accountIDComesFromResponse`、`ConnectionReport.stableAccountID`、`ProviderRegistry.resolvedForSaving`、`learnableDailyBucketID`。钥匙串经 `Config.apply` / `Config.connection(for:)` 接通——EXT-003 建 `CredentialSensitivity` 时留的那道守卫，在这里第一次被真正走通而不是拦下。
