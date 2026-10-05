@@ -21,37 +21,20 @@ import Foundation
 /// 这不是功能开关,而是事实陈述。缺哪一项就如实显示未知或隐藏对应界面,
 /// 绝不拿默认值顶上 —— 和项目一贯的立场一致:不发明数据。
 ///
-/// 所以每一项都应该有真实的消费者。比如 `dailyResetTime` 为假,app 才需要
-/// 自己从「计数器归零」里观测日重置时刻,并把结果标注为推算。
+/// 所以每一项都应该有真实的消费者。比如没有 `usageHistory`,连接报告才会提前告诉
+/// 用户历史只能从装上那天起本地积累。
 public struct ProviderCapabilities: OptionSet, Equatable, Hashable {
 
     public let rawValue: Int
     public init(rawValue: Int) { self.rawValue = rawValue }
 
-    /// 金额口径的用量与上限(带币种)
-    public static let costAmounts         = ProviderCapabilities(rawValue: 1 << 0)
+    // 位值沿用删除前的编号,空着的那几位就是删掉的声明(D-2)
 
     /// **累计** token 计数。每日用量靠相邻采样做差得出,不是对方直接给的。
     public static let cumulativeTokens    = ProviderCapabilities(rawValue: 1 << 1)
 
-    /// 累计请求数
-    public static let cumulativeRequests  = ProviderCapabilities(rawValue: 1 << 2)
-
-    /// 服务端直接给出限流窗口的起止时刻
-    public static let windowResetTimes    = ProviderCapabilities(rawValue: 1 << 3)
-
-    /// 服务端直接给出周重置规则(星期 + 小时)
-    public static let weeklyResetSchedule = ProviderCapabilities(rawValue: 1 << 4)
-
-    /// 服务端直接给出**日**重置时刻。
-    /// 没有这项,app 只能自己观测并标注「推算」—— 见 DailyResetLearner。
-    public static let dailyResetTime      = ProviderCapabilities(rawValue: 1 << 5)
-
     /// 服务端可查历史用量。没有这项,历史只能从装上那天起本地积累。
     public static let usageHistory        = ProviderCapabilities(rawValue: 1 << 6)
-
-    /// 按月聚合的消费
-    public static let monthlyAggregate    = ProviderCapabilities(rawValue: 1 << 7)
 }
 
 // MARK: - 传输
@@ -177,8 +160,7 @@ public protocol UsageProviderAdapter {
     /// 哪条额度的日重置时刻需要 **app 自己观测**。nil 表示不需要。
     ///
     /// 日重置学习是一条**有供应商前提**的功能:中转站不报重置时刻,只能从
-    /// 「计数器归零」这个事件里观测出来;而 tu-zi 每次都给 `reset_at`
-    /// (能力声明里的 `.dailyResetTime`),没什么可学的。
+    /// 「计数器归零」这个事件里观测出来;而 tu-zi 每次都给 `reset_at`,没什么可学的。
     ///
     /// 由声明的一方说出是哪条额度,通用层就不必认识任何一条具体额度的名字
     /// (不变量 6)。从前 `HistoryRecorder` 里写死的那个 "daily" 就是这么漏出去的:
@@ -470,7 +452,7 @@ public struct ConnectionReport: Equatable {
         /// **看这次实际拿到的数据,不看能力声明**:从前按「没声明 `.dailyResetTime`」给出,
         /// 文案写的是「将由观测推算」—— 那只对中转站成立。sub2api 的 key 限额窗口是
         /// 服务端给的,订阅的日重置是按时区推的,两种都不靠观测,那句话对它两头都不对
-        /// (EXT-011,2026-09-28)。
+        /// (EXT-011,2026-09-28)。那项声明后来也删了(D-2)。
         case resetInferred
         /// 没有任何可信周期,算不出速度判断
         case noResetWindow

@@ -237,52 +237,9 @@ public enum TokenAttributionPolicy {
 // MARK: - 空档
 
 public enum HistoryGaps {
-    /// 相邻采样超过这个间隔就算断档
-    public static let threshold: TimeInterval = 30 * 60
-
-    /// 把采样切成连续的段。段与段之间是 app 没运行的时间,
+    /// 相邻采样超过这个间隔就算断档。断档那段是 app 没运行的时间,
     /// 画图时要渲染成阴影,**不能直接连线** —— 那等于凭空捏造中间的用量。
-    public static func segments(_ samples: [Sample],
-                                threshold: TimeInterval = threshold) -> [[Sample]] {
-        split(samples) { previous, current in
-            current.at.timeIntervalSince(previous.at) > threshold
-        }
-    }
-}
-
-// MARK: - 重置周期
-
-public enum QuotaCycles {
-    /// 按某条额度切分重置周期:计数器一旦下降,就说明跨过了重置边界。
-    /// 每个周期各画一条曲线,不跨重置平滑 —— 否则会出现一条从 0 猛跳回满格的假线。
-    public static func split(_ samples: [Sample], bucketID: String) -> [[Sample]] {
-        HistoryGaps.split(samples) { previous, current in
-            // 有一侧没有这条额度,就**没有证据**说明发生过重置 —— 缺数据不是归零。
-            // 供应商临时少报一条额度时,这里若判成下降,曲线上会凭空多出一次重置。
-            guard let before = previous.used(bucketID),
-                  let after = current.used(bucketID) else { return false }
-            return after < before
-        }
-    }
-}
-
-extension HistoryGaps {
-    /// 按给定条件在相邻两条之间断开
-    static func split(_ samples: [Sample],
-                      breakBetween: (Sample, Sample) -> Bool) -> [[Sample]] {
-        var result: [[Sample]] = []
-        var current: [Sample] = []
-
-        for sample in samples {
-            if let last = current.last, breakBetween(last, sample) {
-                result.append(current)
-                current = []
-            }
-            current.append(sample)
-        }
-        if !current.isEmpty { result.append(current) }
-        return result
-    }
+    public static let threshold: TimeInterval = 30 * 60
 }
 
 // MARK: - 账号分区

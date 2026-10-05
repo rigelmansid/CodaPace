@@ -79,19 +79,9 @@ public struct TuziProvider: UsageProviderAdapter {
 
     /// 这家给什么、不给什么。
     ///
-    /// `costAmounts` 为真的依据**不在 JSON 里**:那些额度字段一个币种标记都没带。
-    /// 依据是供应商自己的用量页面把同一个数字显示成 `$12.50 / $30.00` ——
-    /// 对方在另一个渠道说明了单位,那就不是我们替它发明的。
-    ///
-    /// 三个「不给」都有实际后果:没有累计 token / 请求数,面板上那一整行不显示、
-    /// token 柱状图一直空着;没有 `usageHistory`,历史只能从装上那天起本地积累。
-    ///
-    /// `dailyResetTime` 为真是这家**相对中转站的实质优势** —— 日重置时刻是对方
-    /// 明确给的,界面不必再标「推算」,也不需要 DailyResetLearner 去观测。
-    public var capabilities: ProviderCapabilities {
-        [.costAmounts, .windowResetTimes, .weeklyResetSchedule,
-         .dailyResetTime, .monthlyAggregate]
-    }
+    /// 两个「不给」都有实际后果:没有累计 token,token 图空着时直说这家不报(OPT-030);
+    /// 没有 `usageHistory`,连接报告会提示历史只能从装上那天起本地积累。
+    public var capabilities: ProviderCapabilities { [] }
 
     // MARK: - 识别与解析
 
@@ -136,7 +126,7 @@ public struct TuziProvider: UsageProviderAdapter {
     public func fetchUsage(_ connection: Connection, schedule: ResetSchedule,
                            language: Language) async throws -> Snapshot {
         // schedule 整个用不上:这家每条额度的起止时刻都由服务端直接给出,
-        // 不需要 app 观测的那套推算。这不是偷懒,是能力声明的兑现。
+        // 不需要 app 观测的那套推算。
         let quota = try await fetch(connection, language: language)
         return buildSnapshot(quota, now: Date())
     }

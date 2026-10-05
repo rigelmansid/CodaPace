@@ -86,7 +86,7 @@ public struct ClaudeCodeHubProvider: UsageProviderAdapter {
     public var inputHint: LangKey { .inputHintApiKey }
 
     /// 响应只有金额口径的上限和已用,没有累计 token / 请求数,也没有历史接口
-    public var capabilities: ProviderCapabilities { [.costAmounts] }
+    public var capabilities: ProviderCapabilities { [] }
 
     // MARK: - 识别与解析(和 sub2api 同一套:地址 + key,认任何网址,排在注册表最后)
 
@@ -275,7 +275,7 @@ extension ClaudeCodeHubProvider {
             monthlyCost: nil,
             monthlyRequests: nil,
             fetchedAt: now,
-            // 累计 token / 请求数这家本来就不报(能力声明里没有),不算缺
+            // 累计 token / 请求数这家本来就不报,不算缺
             hasCompleteUsage: !gauges.isEmpty && !missingUsed
         )
     }

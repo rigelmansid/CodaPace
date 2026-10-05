@@ -88,7 +88,7 @@ let allSuites: [TestSuite] = [
         ("testManagementURLIsBuiltByTheAdapter", { RelayProviderTests().testManagementURLIsBuiltByTheAdapter() }),
         ("testNoManagementURLWithoutAConfiguredAccount", { RelayProviderTests().testNoManagementURLWithoutAConfiguredAccount() }),
         ("testDeclaresWhatTheRelayActuallyProvides", { RelayProviderTests().testDeclaresWhatTheRelayActuallyProvides() }),
-        ("testDeclaresTheTwoThingsTheRelayDoesNotProvide", { RelayProviderTests().testDeclaresTheTwoThingsTheRelayDoesNotProvide() }),
+        ("testDeclaresTheRelayHasNoUsageHistory", { RelayProviderTests().testDeclaresTheRelayHasNoUsageHistory() }),
     ]),
 
     ("ClaudeCodeHubProviderTests", [
@@ -148,8 +148,6 @@ let allSuites: [TestSuite] = [
     ("TuziSnapshotTests", [
         ("testBuildsThreeBucketsInDisplayOrder", { TuziSnapshotTests().testBuildsThreeBucketsInDisplayOrder() }),
         ("testAmountsAreUSDPerTheProvidersOwnUsagePage", { TuziSnapshotTests().testAmountsAreUSDPerTheProvidersOwnUsagePage() }),
-        ("testClaimsToProvideCostAmounts", { TuziSnapshotTests().testClaimsToProvideCostAmounts() }),
-        ("testDeclaresServerProvidedDailyReset", { TuziSnapshotTests().testDeclaresServerProvidedDailyReset() }),
         ("testNeedsNoDailyResetLearning", { TuziSnapshotTests().testNeedsNoDailyResetLearning() }),
         ("testDeclaresTheThingsItDoesNotProvide", { TuziSnapshotTests().testDeclaresTheThingsItDoesNotProvide() }),
         ("testResetRuleIsServerProvidedAndNotExtrapolated", { TuziSnapshotTests().testResetRuleIsServerProvidedAndNotExtrapolated() }),
@@ -541,20 +539,6 @@ let allSuites: [TestSuite] = [
         ("testNoChangeProducesNoDelta", { TokenDeltaTests().testNoChangeProducesNoDelta() }),
     ]),
 
-    ("HistoryGapTests", [
-        ("testContinuousSamplesStayInOneSegment", { HistoryGapTests().testContinuousSamplesStayInOneSegment() }),
-        ("testWideGapSplitsSegments", { HistoryGapTests().testWideGapSplitsSegments() }),
-        ("testEmptyInputGivesNoSegments", { HistoryGapTests().testEmptyInputGivesNoSegments() }),
-    ]),
-
-    ("QuotaCycleTests", [
-        ("testCounterDropStartsNewCycle", { QuotaCycleTests().testCounterDropStartsNewCycle() }),
-        ("testMonotonicSamplesStayOneCycle", { QuotaCycleTests().testMonotonicSamplesStayOneCycle() }),
-        ("testSplitIsPerBucket", { QuotaCycleTests().testSplitIsPerBucket() }),
-        ("testAMissingBucketIsNotTreatedAsAReset", { QuotaCycleTests().testAMissingBucketIsNotTreatedAsAReset() }),
-        ("testABucketAppearingIsNotTreatedAsAReset", { QuotaCycleTests().testABucketAppearingIsNotTreatedAsAReset() }),
-    ]),
-
     ("KeyTests", [
         ("testAccountKeyIsStableAndDistinct", { KeyTests().testAccountKeyIsStableAndDistinct() }),
         ("testAccountKeyDoesNotContainRawId", { KeyTests().testAccountKeyDoesNotContainRawId() }),
@@ -651,6 +635,7 @@ let allSuites: [TestSuite] = [
         ("testContinuousSamplesShareOneSeries", { QuotaSeriesTests().testContinuousSamplesShareOneSeries() }),
         ("testGapStartsNewSeries", { QuotaSeriesTests().testGapStartsNewSeries() }),
         ("testResetStartsNewSeries", { QuotaSeriesTests().testResetStartsNewSeries() }),
+        ("testAResetInOneBucketDoesNotBreakAnother", { QuotaSeriesTests().testAResetInOneBucketDoesNotBreakAnother() }),
         ("testOverspendClampsToZero", { QuotaSeriesTests().testOverspendClampsToZero() }),
         ("testASampleWithoutTheBucketIsSkippedRatherThanDrawnAsFull", { QuotaSeriesTests().testASampleWithoutTheBucketIsSkippedRatherThanDrawnAsFull() }),
         ("testADropAcrossAMissingSampleStillBreaksTheCurve", { QuotaSeriesTests().testADropAcrossAMissingSampleStillBreaksTheCurve() }),

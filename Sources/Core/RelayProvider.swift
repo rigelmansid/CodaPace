@@ -40,19 +40,14 @@ public struct RelayProvider: UsageProviderAdapter {
     }
 
     /// 这家不报日重置时刻,只能靠观测「今日」那条计数器归零来学 ——
-    /// 和 `capabilities` 里没有 `.dailyResetTime` 是同一件事的两种说法。
+    /// 在观测到之前界面上如实标注「推算」。
     public var learnableDailyBucketID: String? { "daily" }
 
     /// 这个中转站给什么、不给什么。
     ///
-    /// 两个「不给」是有实际后果的,不是凑数:
-    /// · 没有 `dailyResetTime` —— 接口根本没有日重置字段,所以 app 要自己观测,
-    ///   在观测到之前界面上如实标注「推算」。
-    /// · 没有 `usageHistory` —— 只报当前值,所以历史只能从装上那天开始本地积累。
-    public var capabilities: ProviderCapabilities {
-        [.costAmounts, .cumulativeTokens, .cumulativeRequests,
-         .windowResetTimes, .weeklyResetSchedule, .monthlyAggregate]
-    }
+    /// 「不给」是有实际后果的,不是凑数:没有 `usageHistory` —— 只报当前值,
+    /// 所以历史只能从装上那天开始本地积累。
+    public var capabilities: ProviderCapabilities { [.cumulativeTokens] }
 
     // MARK: - 识别与解析
 

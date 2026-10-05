@@ -33,7 +33,7 @@ arm64，`-target arm64-apple-macos13.0`；源码按 `-swift-version 5` 编，不
 ## 命令
 
 ```bash
-swift run CoreTests    # 490 例，应全绿。改 Core 或测试后必跑
+swift run CoreTests    # 481 例，应全绿。改 Core 或测试后必跑
 ./build.sh             # 构建 build/CodaPace.app（ad-hoc 签名）
 ```
 

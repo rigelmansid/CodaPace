@@ -74,6 +74,15 @@ final class QuotaSeriesTests: XCTestCase {
         XCTAssertEqual(points[2].remainingRatio, 1 - 0.5 / 70, accuracy: 1e-9)
     }
 
+    /// 断开按额度各算各的:今日那条归零,不代表总额度那条也跨过了重置
+    func testAResetInOneBucketDoesNotBreakAnother() {
+        let samples = [chartSample(minutes: 0, daily: 60, total: 30),
+                       chartSample(minutes: 1, daily: 0.5, total: 35)]
+
+        XCTAssertEqual(QuotaSeriesBuilder.build(samples: samples, bucketID: "daily").map(\.series), [0, 1])
+        XCTAssertEqual(QuotaSeriesBuilder.build(samples: samples, bucketID: "total").map(\.series), [0, 0])
+    }
+
     /// 超额使用时剩余比例不该变成负数
     func testOverspendClampsToZero() {
         let points = QuotaSeriesBuilder.build(

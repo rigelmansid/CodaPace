@@ -55,7 +55,6 @@ final class RelayProviderTests: XCTestCase {
     /// 否则通用层只能写死一个额度名(不变量 6)
     func testTheRelayNamesTheQuotaWhoseDailyResetMustBeLearned() {
         XCTAssertEqual(relay.learnableDailyBucketID, "daily")
-        XCTAssertFalse(relay.capabilities.contains(.dailyResetTime))
     }
 
     /// 自建部署常带非标准端口,不能丢
@@ -89,18 +88,13 @@ final class RelayProviderTests: XCTestCase {
     // ── capabilities ──────────────────────────────────
 
     func testDeclaresWhatTheRelayActuallyProvides() {
-        XCTAssertTrue(relay.capabilities.contains(.costAmounts))
         XCTAssertTrue(relay.capabilities.contains(.cumulativeTokens))
-        XCTAssertTrue(relay.capabilities.contains(.windowResetTimes))
-        XCTAssertTrue(relay.capabilities.contains(.weeklyResetSchedule))
     }
 
-    /// 这两个「不给」是有实际后果的,不是凑数:
-    /// 没有日重置时刻 → app 自己观测并标注「推算」;
+    /// 这个「不给」是有实际后果的,不是凑数:
     /// 没有历史接口 → 历史只能从装上那天起本地积累。
     /// 能力声明要是全真,它就等于没声明。
-    func testDeclaresTheTwoThingsTheRelayDoesNotProvide() {
-        XCTAssertFalse(relay.capabilities.contains(.dailyResetTime))
+    func testDeclaresTheRelayHasNoUsageHistory() {
         XCTAssertFalse(relay.capabilities.contains(.usageHistory))
     }
 }
@@ -464,8 +458,8 @@ final class ConnectionReportTests: XCTestCase {
         XCTAssertTrue(report.findings.contains(.historyIsLocalOnly))
     }
 
-    /// 「推算」看的是**这次实际拿到的周期**,不看能力声明(EXT-011):
-    /// 服务端给了起止的,不管声明了什么,都不该说成推算
+    /// 「推算」看的是**这次实际拿到的周期**(EXT-011):
+    /// 服务端给了起止的不该说成推算,标成推算的才提示
     func testOnlyAnInferredPeriodBecomesTheInferredFinding() {
         let given = ConnectionReport(
             snapshot: reportSnapshot(gauges: [bucket("daily", used: 5, limit: 10, window: window)]),
@@ -474,7 +468,7 @@ final class ConnectionReportTests: XCTestCase {
 
         let inferred = ConnectionReport(
             snapshot: reportSnapshot(gauges: [bucket("daily", used: 5, limit: 10, window: inferredWindow)]),
-            providerID: "p", displayName: "P", capabilities: [.dailyResetTime])
+            providerID: "p", displayName: "P", capabilities: [])
         XCTAssertTrue(inferred.findings.contains(.resetInferred))
     }
 

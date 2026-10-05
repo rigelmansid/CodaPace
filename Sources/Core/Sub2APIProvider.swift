@@ -39,11 +39,8 @@ public struct Sub2APIProvider: UsageProviderAdapter {
 
     public var inputHint: LangKey { .inputHintApiKey }
 
-    /// 响应里有 `usage.total` 的累计花费、请求数和 token 数。
-    /// 没有 `dailyResetTime`:订阅模式的日重置是按服务端时区推算的(见 buildSnapshot)。
-    public var capabilities: ProviderCapabilities {
-        [.costAmounts, .cumulativeTokens, .cumulativeRequests, .windowResetTimes]
-    }
+    /// 响应里有 `usage.total` 的累计 token 数,没有历史接口。
+    public var capabilities: ProviderCapabilities { [.cumulativeTokens] }
 
     // MARK: - 识别与解析
 

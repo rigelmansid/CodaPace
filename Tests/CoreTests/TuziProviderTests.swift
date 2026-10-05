@@ -162,28 +162,15 @@ final class TuziSnapshotTests: XCTestCase {
         XCTAssertEqual(daily?.amount(12.5), "$12.50")
     }
 
-    /// 能力声明要和上面那条一致:界面按 costAmounts 决定要不要给数字加币种
-    func testClaimsToProvideCostAmounts() {
-        XCTAssertTrue(tuzi.capabilities.contains(.costAmounts))
-    }
-
-    /// 日重置时刻是对方明确给的 —— 这是这家相对中转站的实质优势,
-    /// 界面不必再标「推算」,也不需要 DailyResetLearner 去观测
-    func testDeclaresServerProvidedDailyReset() {
-        XCTAssertTrue(tuzi.capabilities.contains(.dailyResetTime))
-    }
-
     /// 服务端自己就给重置时刻,就不该再去「观测学习」它 ——
     /// 对着一个已知事实学出来的只会比对方给的更差
     func testNeedsNoDailyResetLearning() {
         XCTAssertNil(tuzi.learnableDailyBucketID)
-        XCTAssertTrue(tuzi.capabilities.contains(.dailyResetTime))
     }
 
-    /// 没有累计 token / 请求数,也就不该声明有
+    /// 没有累计 token、没有历史接口,也就不该声明有
     func testDeclaresTheThingsItDoesNotProvide() {
         XCTAssertFalse(tuzi.capabilities.contains(.cumulativeTokens))
-        XCTAssertFalse(tuzi.capabilities.contains(.cumulativeRequests))
         XCTAssertFalse(tuzi.capabilities.contains(.usageHistory))
     }
 

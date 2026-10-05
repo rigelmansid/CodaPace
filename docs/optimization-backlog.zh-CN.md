@@ -784,6 +784,14 @@ else                           → 「这段时间还没有采样」
 
 **未做**：`QuotaCycles.split`（`HistoryModels.swift`）有同样的紧邻比较，但生产代码不再调用它，只有测试在用。按不变量 5，它该删而不是该修；删它要连带改测试，留给下次动那个文件时处理。
 
+**补做（2026-10-05，用户要求执行）**：删了 `QuotaCycles`。它那 5 例测试守的规则逐条对到画图路径 `QuotaSeriesBuilder`：计数器下降、单调上涨、缺一条不算重置，已有 `testResetStartsNewSeries`、`testContinuousSamplesShareOneSeries`、`testARiseAcrossAMissingSampleStaysOneCurve`；「前一条没有、后一条才出现」在画图路径上没有可见差别（前面没有这条额度的点可断），不补；「按额度各算各的」没有对应用例，补了 `testAResetInOneBucketDoesNotBreakAnother`。删 5 例、加 1 例。
+
+**反向验证**：注入「任一额度下降都算重置」→ 只有新补的那例变红；还原后全绿。
+
+**同类清理（2026-10-06，D-4）**：`HistoryGaps.segments` 从第一个提交起就只有测试在调（`HistoryGapTests` 3 例），图上的空档一直由 `QuotaSeriesBuilder` 处理（`breakReasons` 断线、`gaps` 给阴影区间）。删了它和只为它服务的 `HistoryGaps.split`，保留 `threshold`，「断档不能连线」的原因挪到它的注释上；3 例测试一并删掉。
+
+**反向验证**（证明那 3 例守的规则在画图路径上有测试）：关掉 `breakReasons` 的空档断开 → `testGapStartsNewSeries` 等 4 例变红，接着 `testGapProducesConnector` 越界崩溃；关掉 `gaps` → `testGapIntervalsAreReported` 在 `gaps[0]` 处越界崩溃（坑 3 的旧写法，没改）。还原后全绿。
+
 ## OPT-025：学到的日重置时刻丢掉分钟，小幅冲正也被当成重置
 
 - **优先级：** P3
