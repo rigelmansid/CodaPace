@@ -17,6 +17,7 @@ D-n 见 [decisions.md](decisions.md)，坑 n 见 [pitfalls.md](pitfalls.md)。
 | 2026-09-29 / 30 | 第二轮全项目审查：外部报告 10 项 + 两路复查 8 项，录为 OPT-013…030，分 6 批修完，测试 458 → 490 | 各条修复记录列有「验证缺口」；第 6 批界面改动未实机确认 |
 | 2026-10-01 | 发布 v2.3（用户要求），含第二轮审查全部修复 | 见验证记录 |
 | 2026-10-03 | 按 agent-system code profile 补成标准结构（D-1） | 见验证记录 |
+| 2026-10-05 / 06 | 删除没人读的 6 项能力声明（D-2），剩下两项保留（D-3）；删除只剩测试在调的 `QuotaCycles`（OPT-024 补做）和 `HistoryGaps.segments`（D-4），给画图路径补 1 例测试；/simplify 四路审查后清理注释；测试 490 → 481；提交 `c83ec0c` 并推送（用户要求） | 见验证记录；没有界面改动，不需实机 |
 
 ## 验证记录
 
@@ -30,3 +31,5 @@ D-n 见 [decisions.md](decisions.md)，坑 n 见 [pitfalls.md](pitfalls.md)。
 | 2026-09-26 实机（历史记录） | 更新提醒：`build/` 那份版本改低后出现「有新版本」 | 一键安装未做 |
 | 2026-09-30（历史记录） | `swift run CoreTests` 490 通过 · 0 失败；UI 全量类型检查无输出；供应商隔离核查无命中 | 用户看过设置窗口那批修复，未发现问题 |
 | 2026-10-01 发布后（历史记录） | `curl` 核对 `releases/latest` 是 v2.3；下载的 zip 哈希与说明一致（`a9a26c5e…`） | 本机 `/Applications` 仍是 2.2 |
+| 2026-10-03（历史记录） | 补结构（D-1）后重新跑过 `swift run CoreTests`（490 通过）和 UI 全量类型检查（无输出） | 原记在 project-notes 基线表的说明里，2026-10-06 移到这里 |
+| 2026-10-06 本机（本次） | `swift run CoreTests` 481 通过 · 0 失败；UI 全量类型检查无输出；供应商隔离核查无命中；乱码扫描干净。反向验证：注入「任一额度下降都算重置」，只有新补的 `testAResetInOneBucketDoesNotBreakAnother` 失败；关掉画图路径的空档断开，`testGapStartsNewSeries` 等 4 例失败；关掉 `gaps`，`testGapIntervalsAreReported` 越界崩溃 | Apple Swift 6.4、CommandLineTools、类型检查用 MacOSX26 SDK。只跑了 Core 测试和类型检查，没构建 app、没实机。链接时有 `ld: warning: search path … not found`，没影响结果，没深究 |
