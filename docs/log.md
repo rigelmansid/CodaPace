@@ -18,6 +18,7 @@ D-n 见 [decisions.md](decisions.md)，坑 n 见 [pitfalls.md](pitfalls.md)。
 | 2026-10-01 | 发布 v2.3（用户要求），含第二轮审查全部修复 | 见验证记录 |
 | 2026-10-03 | 按 agent-system code profile 补成标准结构（D-1） | 见验证记录 |
 | 2026-10-05 / 06 | 删除没人读的 6 项能力声明（D-2），剩下两项保留（D-3）；删除只剩测试在调的 `QuotaCycles`（OPT-024 补做）和 `HistoryGaps.segments`（D-4），给画图路径补 1 例测试；/simplify 四路审查后清理注释；测试 490 → 481；提交 `c83ec0c` 并推送（用户要求） | 见验证记录；没有界面改动，不需实机 |
+| 2026-10-06 | 收尾文档提交并推送（`95ad9e7`，用户要求）；评估要不要发版，结论是内部清理不单独发版（D-5，agent 选择，待用户确认） | 推送后远端与本地都是 `95ad9e7`；核对 `v2.3..HEAD`：app 层只改 1 行注释，`Info.plist`、`build.sh`、`Package.swift` 未动 |
 
 ## 验证记录
 

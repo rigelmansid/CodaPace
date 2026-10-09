@@ -8,17 +8,19 @@
 
 ## 进行中
 
-更新：2026-10-06 01:27
+更新：2026-10-06 22:28
 - 任务：无，上一个工作单元：删除没人读的能力声明（D-2）和只剩测试在调的 `QuotaCycles`、
   `HistoryGaps.segments`（D-4），测试 490 → 481
-- 停在：代码改动已提交并推送（`c83ec0c`）；收尾文档另有一个提交，是否已推送以
-  `git status -sb` 为准
-- 本次决策：D-2、D-3、D-4
-- 待用户确认：无
-- 下一步：按 §5「待执行」继续：1. 重拍 `settings.png`、`popover.png`（OPT-030），替换前给用户看
-  2. 实机确认第 6 批界面改动 3. 建 `.git/privacy-patterns`
+- 停在：`c83ec0c`（代码）、`95ad9e7`（收尾文档）已推送；之后这次收尾的文档改动是否已提交、
+  推送，以 `git status -sb` 为准
+- 本次决策：D-2、D-3、D-4、D-5
+- 待用户确认：D-5（agent 选择：内部清理不单独发版）；先建 `.git/privacy-patterns` 还是先重拍截图
+- 下一步：按 §5「待执行」：1. 建 `.git/privacy-patterns`：从 `private-notes.md` 取真实用户名、
+  主机名写成正则，核对它匹配得到 `private-notes.md`、在已入库文件里无命中 2. 重拍
+  `settings.png`、`popover.png`（OPT-030），替换前给用户看 3. 实机确认第 6 批界面改动
 - 不要重复：6 项能力声明、`QuotaCycles`、`HistoryGaps.segments` / `split` 已删；剩下的
-  `cumulativeTokens`、`usageHistory` 按 D-3 保留，不要再提议删掉或改看快照
+  `cumulativeTokens`、`usageHistory` 按 D-3 保留，不要再提议删掉或改看快照；不要为这次
+  内部清理单独发版（D-5）
 
 ## 项目概况
 
@@ -53,7 +55,7 @@ Scripts/          图标生成器，平时不用动
 | `private-notes.md`（不入库） | 真实地址、用户名、个人配置 |
 | `../materials/`（仓库外） | 参考资料 `refs/`、待整理 `inbox/`、临时产出 `scratch/` |
 
-最新快照：v2.3 已发布（2026-10-01）；之后 main 上只有内部清理（`c83ec0c`，没有用户可见的变化），未发版。本机 `/Applications` 里运行的仍是正式版 2.2（用户自己换回去的）；
+最新快照：v2.3 已发布（2026-10-01）；之后 main 上只有内部清理（`c83ec0c`，没有用户可见的变化），按 D-5 不单独发版。本机 `/Applications` 里运行的仍是正式版 2.2（用户自己换回去的）；
 用户要升级时，照 Release 说明「先退出、删旧版、再装」。
 
 ### 两份 backlog 的进度
