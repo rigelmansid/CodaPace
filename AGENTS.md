@@ -1,4 +1,3 @@
-<!-- profile: code -->
 # AGENTS.md
 
 写给 AI 编程助手和维护者的工作规则。`CLAUDE.md` 是指向本文件的符号链接，只改本文件。

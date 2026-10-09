@@ -80,3 +80,13 @@
 - 理由：用户拿到的东西不变，发版却要让用户收更新提醒、按「先退出、删旧版、再装」升级，
   新构建的 ad-hoc 签名还会让钥匙串授权框对每个账户再弹一次（坑 2）。
 - 影响：无代码改动；这些改动随下一个版本发出。
+
+### D-6 去掉 code profile 声明，接入后的文件全部保留（2026-10-09，用户决定）
+
+- 背景：agent-system 收敛为 RULE.md 和 /adopt、/pickup、/wrap、/private 四个命令，删除了 profile
+  （agent-system D-62）；有 `docs/project-notes.md` 就算接入，AGENTS.md 第一行的 profile 声明不再起作用。
+- 选项：A 保留这行声明 / B 删掉声明，接入后的文件全部保留
+- 选择：B
+- 理由：用户决定；不起作用的声明留着，会让人以为还在按 code profile 工作。
+- 影响：AGENTS.md 第一行。code profile 的规则不再自动加载，测试、提交、验证、发版等规则 AGENTS.md 里已有；`log.md` 照
+  AGENTS.md「文档」一节继续更新；新记的坑按 agent-system RULE.md 第 2 节的格式，旧条目不改；pre-commit 钩子不变。
