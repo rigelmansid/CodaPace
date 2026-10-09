@@ -3,7 +3,7 @@
 写给 AI 编程助手和维护者的工作规则。`CLAUDE.md` 是指向本文件的符号链接，只改本文件。
 
 本文件只写**怎么做**。项目内容在 `docs/`：
-[project-notes.md](docs/project-notes.md)（进行中、现状、架构、待办、规划；下文 § 指它的章节）、
+[project-notes.md](docs/project-notes.md)（Handoff、现状、架构、待办、规划；下文 § 指它的章节）、
 [decisions.md](docs/decisions.md)（D-n）、[pitfalls.md](docs/pitfalls.md)（坑 n）、
 [log.md](docs/log.md)（阶段记录与验证记录），以及逐条记录改动缘由的两份 backlog：
 [optimization-backlog.zh-CN.md](docs/optimization-backlog.zh-CN.md)（OPT-n）、
@@ -12,10 +12,8 @@
 
 ## 接手
 
-1. 读 project-notes 的「进行中」和 §5 待办，先向用户报告现状再动手：最新进展、本地 git
-   状态（`git status -sb`、`git log --oneline -5`）、GitHub 状态
-   （`gh release view --json tagName,publishedAt`、origin 是否同步）、待确认与待执行各几项。
-   数字要现查，不要照抄文档。
+1. 用户输入 `/pickup` 查看现状时，另外报告 GitHub 状态（`gh release view --json tagName,publishedAt`、
+   origin 是否同步）。数字要现查，不要照抄文档。
 2. 动某个模块前，先读对应的 OPT / EXT 条目末尾的「修复记录」和相关的坑。很多看起来
    「明显该改」的地方，那里已经解释过为什么不改。
 3. 现有的东西：`Sources/Core/`（纯逻辑，可单测）、`Sources/App/`（SwiftUI、菜单栏、钥匙串）、
@@ -127,7 +125,7 @@ swiftc -typecheck -swift-version 5 -target arm64-apple-macos13.0 \
 
 - 完成一条 OPT / EXT 后，在该条末尾写「修复记录」：改法、取舍、**未做的部分及理由**。
 - 跨条目的决策、用户拍板的事记进 `docs/decisions.md`（D-n），当场记。
-- 工作单元结束时覆盖「进行中」，在 `docs/log.md` 追加记录，更新待办和当前状态。
+- 收尾（`/wrap`）时另外在 `docs/log.md` 追加记录。
 - 新发现的文档过时点记在 project-notes 的「已知的文档过时点」。
 - 文档语言：中文，全角标点。README 中英两份同步改。
 - 改完中文文件扫一遍乱码（坑 7）：`grep -rn $'\xef\xbf\xbd' Sources Tests docs README*.md AGENTS.md`。

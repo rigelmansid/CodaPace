@@ -90,3 +90,12 @@
 - 理由：用户决定；不起作用的声明留着，会让人以为还在按 code profile 工作。
 - 影响：AGENTS.md 第一行。code profile 的规则不再自动加载，测试、提交、验证、发版等规则 AGENTS.md 里已有；`log.md` 照
   AGENTS.md「文档」一节继续更新；新记的坑按 agent-system RULE.md 第 2 节的格式，旧条目不改；pre-commit 钩子不变。
+
+### D-7 AGENTS.md 去掉和 agent-system 重复的会话流程（2026-10-09，用户决定）
+
+- 背景：「接手」第 1 条（开场读「进行中」和待办、先向用户报告）和「文档」里“工作单元结束时覆盖「进行中」……更新待办和当前状态”，与 agent-system 的 RULE.md、/pickup、/wrap 重复（agent-system D-38）；开场先读状态
+  还和 RULE.md 1.1 冲突，而本文件的优先级更高。
+- 选项：A 保留 / B 删掉重复的部分，只留本项目特有的
+- 选择：B。开场不再自动读状态，要看现状时用户输入 /pickup，另外报告 GitHub 状态；收尾用 /wrap，另外在 `docs/log.md` 追加记录。
+- 理由：用户决定。
+- 影响：AGENTS.md「接手」第 1 条、「文档」一条，开头对 project-notes 的说明把「进行中」改为 Handoff。
