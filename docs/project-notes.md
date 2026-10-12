@@ -6,19 +6,19 @@
 踩过的坑见 [pitfalls.md](pitfalls.md)（坑 n），阶段记录与验证记录见 [log.md](log.md)。
 逐条改动的缘由在两份 backlog（OPT-n、EXT-n），见 §7。
 
-## 进行中
+## Handoff
 
-更新：2026-10-06 22:28
-- 任务：无，上一个工作单元：删除没人读的能力声明（D-2）和只剩测试在调的 `QuotaCycles`、
+Updated: 2026-10-06 22:28
+- Task: 无，上一个工作单元：删除没人读的能力声明（D-2）和只剩测试在调的 `QuotaCycles`、
   `HistoryGaps.segments`（D-4），测试 490 → 481
-- 停在：`c83ec0c`（代码）、`95ad9e7`（收尾文档）已推送；之后这次收尾的文档改动是否已提交、
+- Stopped at: `c83ec0c`（代码）、`95ad9e7`（收尾文档）已推送；之后这次收尾的文档改动是否已提交、
   推送，以 `git status -sb` 为准
-- 本次决策：D-2、D-3、D-4、D-5
-- 待用户确认：D-5（agent 选择：内部清理不单独发版）；先建 `.git/privacy-patterns` 还是先重拍截图
-- 下一步：按 §5「待执行」：1. 建 `.git/privacy-patterns`：从 `private-notes.md` 取真实用户名、
+- Decisions: D-2、D-3、D-4、D-5
+- Waiting on user: D-5（agent 选择：内部清理不单独发版）；先建 `.git/privacy-patterns` 还是先重拍截图
+- Next: 按 §5「待执行」：1. 建 `.git/privacy-patterns`：从 `private-notes.md` 取真实用户名、
   主机名写成正则，核对它匹配得到 `private-notes.md`、在已入库文件里无命中 2. 重拍
   `settings.png`、`popover.png`（OPT-030），替换前给用户看 3. 实机确认第 6 批界面改动
-- 不要重复：6 项能力声明、`QuotaCycles`、`HistoryGaps.segments` / `split` 已删；剩下的
+- Don't repeat: 6 项能力声明、`QuotaCycles`、`HistoryGaps.segments` / `split` 已删；剩下的
   `cumulativeTokens`、`usageHistory` 按 D-3 保留，不要再提议删掉或改看快照；不要为这次
   内部清理单独发版（D-5）
 
