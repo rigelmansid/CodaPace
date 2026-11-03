@@ -10,10 +10,10 @@
 
 Updated: 2026-11-04 00:01
 - Task: 无，上一个工作单元：/adopt 复查；参考资料和临时产出的位置从 `../materials/` 改为 `temp/`（D-8）
-- Stopped at: 已提交 `4b0a535`、`fcb8dfe`，main 领先 origin 2 个提交，未推送；之后这次收尾的
-  文档改动未提交，以 `git status -sb` 为准
+- Stopped at: `4b0a535`、`fcb8dfe`、`3e1bb4e` 已推送，origin 与本地同步；之后的改动
+  以 `git status -sb` 为准
 - Decisions: D-8、D-9
-- Waiting on user: D-5（agent 选择：内部清理不单独发版）；是否推送
+- Waiting on user: D-5（agent 选择：内部清理不单独发版）
 - Next: 按 §5「待执行」：1. 重拍 `settings.png`、`popover.png`（OPT-030），替换前给用户看
   2. 实机确认第 6 批界面改动 3. 想接着看 cc-switch 识别服务商：还没看 `UsageScriptModal.tsx`
   的余额/官方订阅预选和 deeplink 导入（临时克隆已删，要重新克隆到 `temp/`）
