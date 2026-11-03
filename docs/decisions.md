@@ -99,3 +99,11 @@
 - 选择：B。开场不再自动读状态，要看现状时用户输入 /pickup，另外报告 GitHub 状态；收尾用 /wrap，另外在 `docs/log.md` 追加记录。
 - 理由：用户决定。
 - 影响：AGENTS.md「接手」第 1 条、「文档」一条，开头对 project-notes 的说明把「进行中」改为 Handoff。
+
+### D-8 参考资料和临时产出改放项目里的 temp/（2026-11-03，用户决定）
+
+- 背景：AGENTS.md「隐私」写的是仓库外的 `../materials/`，但这个目录已不存在，`refs/`、`inbox/`、`scratch/` 实际在项目里的 `temp/`（agent-system D-75，整个文件夹不入库）。
+- 选项：A 保留 `../materials/` 的写法 / B 改为 `temp/`
+- 选择：B。参考资料、待整理笔记、临时产出放 `temp/`，临时文件和生成物写到 `temp/scratch/`。
+- 理由：用户决定；与实际位置和 agent-system 的约定一致。
+- 影响：AGENTS.md「隐私」一条。project-notes 的目录表和外部审查材料路径同步改为 `temp/`；D-1 等旧条目里的路径是历史记录，不改。

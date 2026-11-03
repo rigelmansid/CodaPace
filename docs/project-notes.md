@@ -52,7 +52,7 @@ Scripts/          图标生成器，平时不用动
 | `docs/images/` | README 截图 |
 | `build.sh`、`Scripts/make-icon.swift` | 构建脚本、图标生成器 |
 | `private-notes.md`（不入库） | 真实地址、用户名、个人配置 |
-| `../materials/`（仓库外） | 参考资料 `refs/`、待整理 `inbox/`、临时产出 `scratch/` |
+| `temp/`（不入库，D-8） | 参考资料 `refs/`、待整理 `inbox/`、临时产出 `scratch/` |
 
 最新快照：v2.3 已发布（2026-10-01）；之后 main 上只有内部清理（`c83ec0c`，没有用户可见的变化），按 D-5 不单独发版。本机 `/Applications` 里运行的仍是正式版 2.2（用户自己换回去的）；
 用户要升级时，照 Release 说明「先退出、删旧版、再装」。
@@ -398,4 +398,4 @@ Developer ID 一次解决三件事：更新安全、钥匙串反复弹、Gatekee
 
 - 两份 backlog：见「当前状态」的文件表。EXT-011 末尾按时间排着 2026-09-28 / 29 的几节「实测」和「已完成」，包括范围收敛到 Coding Plan 的接入标准。
 - deep-research 调研报告（2026-09-28，46 个对象）：在维护者本机，路径见 `private-notes.md`；结论已抄进 EXT-011。
-- 2026-09-29 的外部审查报告与复现材料：`../materials/refs/codapace-bak/`（仓库外）。
+- 2026-09-29 的外部审查报告与复现材料：`temp/refs/codapace-bak/`（不入库）。
