@@ -1,6 +1,6 @@
 # CodaPace 开发与维护记录
 
-最后更新：2026-10-06。
+最后更新：2026-11-03。
 
 工作规则（命令、风格、不变量、发版）在 [AGENTS.md](../AGENTS.md)。决策见 [decisions.md](decisions.md)（D-n），
 踩过的坑见 [pitfalls.md](pitfalls.md)（坑 n），阶段记录与验证记录见 [log.md](log.md)。
@@ -8,19 +8,18 @@
 
 ## Handoff
 
-Updated: 2026-10-06 22:28
-- Task: 无，上一个工作单元：删除没人读的能力声明（D-2）和只剩测试在调的 `QuotaCycles`、
-  `HistoryGaps.segments`（D-4），测试 490 → 481
-- Stopped at: `c83ec0c`（代码）、`95ad9e7`（收尾文档）已推送；之后这次收尾的文档改动是否已提交、
-  推送，以 `git status -sb` 为准
-- Decisions: D-2、D-3、D-4、D-5
+Updated: 2026-11-03 13:00
+- Task: 无，上一个工作单元：只读调研 cc-switch v4.0.25（`7afceec`）怎么查各家额度/余额，
+  本仓库代码未改；结论要点记在 §5「三家厂商」一条
+- Stopped at: 「cc-switch 怎么按地址识别服务商」答了一半（已看前端正则表与新建时自动注入，
+  未看 `UsageScriptModal.tsx` 的余额/官方订阅预选和 deeplink 导入）；临时克隆已删
+- Decisions: 无新增（最近 D-6、D-7）
 - Waiting on user: D-5（agent 选择：内部清理不单独发版）；先建 `.git/privacy-patterns` 还是先重拍截图
 - Next: 按 §5「待执行」：1. 建 `.git/privacy-patterns`：从 `private-notes.md` 取真实用户名、
   主机名写成正则，核对它匹配得到 `private-notes.md`、在已入库文件里无命中 2. 重拍
   `settings.png`、`popover.png`（OPT-030），替换前给用户看 3. 实机确认第 6 批界面改动
-- Don't repeat: 6 项能力声明、`QuotaCycles`、`HistoryGaps.segments` / `split` 已删；剩下的
-  `cumulativeTokens`、`usageHistory` 按 D-3 保留，不要再提议删掉或改看快照；不要为这次
-  内部清理单独发版（D-5）
+- Don't repeat: `cumulativeTokens`、`usageHistory` 按 D-3 保留，不要再提议删掉；不要为内部清理
+  单独发版（D-5）；cc-switch 官方订阅用的是未公开接口，不要当成稳定 API 照搬
 
 ## 项目概况
 
@@ -282,6 +281,7 @@ ad-hoc 签名、没有 provisioning profile 的 app **能用钥匙串**，写、
 等外部条件：
 
 - [ ] **三家厂商（智谱、Kimi、MiniMax）要真实账户**，用户目前一家都没有。每家动手前的实测清单在 EXT-011「调研结论」一节。Kimi 还有一条硬约束：官方禁止篡改 User-Agent，查不到就降级，**不得伪装**。
+  参考实现：cc-switch v4.0.25 的 `src-tauri/src/services/coding_plan.rs`（按 base_url 识别厂商后调各家套餐接口：Kimi `{base}/usages`、智谱 `/api/monitor/usage/quota/limit`（`Authorization` 不带 `Bearer`）、MiniMax `/v1/api/openplatform/coding_plan/remains`）。2026-11-03 只读了源码，未实测。
 - [ ] macOS 13 真机验证（EXT-009），无机器可做。
 
 ## 6. 开发规划
