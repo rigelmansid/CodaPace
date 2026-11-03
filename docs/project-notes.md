@@ -1,6 +1,6 @@
 # CodaPace 开发与维护记录
 
-最后更新：2026-11-03。
+最后更新：2026-11-04。
 
 工作规则（命令、风格、不变量、发版）在 [AGENTS.md](../AGENTS.md)。决策见 [decisions.md](decisions.md)（D-n），
 踩过的坑见 [pitfalls.md](pitfalls.md)（坑 n），阶段记录与验证记录见 [log.md](log.md)。
@@ -8,18 +8,17 @@
 
 ## Handoff
 
-Updated: 2026-11-03 13:00
-- Task: 无，上一个工作单元：只读调研 cc-switch v4.0.25（`7afceec`）怎么查各家额度/余额，
-  本仓库代码未改；结论要点记在 §5「三家厂商」一条
-- Stopped at: 「cc-switch 怎么按地址识别服务商」答了一半（已看前端正则表与新建时自动注入，
-  未看 `UsageScriptModal.tsx` 的余额/官方订阅预选和 deeplink 导入）；临时克隆已删
-- Decisions: 无新增（最近 D-6、D-7）
-- Waiting on user: D-5（agent 选择：内部清理不单独发版）；先建 `.git/privacy-patterns` 还是先重拍截图
-- Next: 按 §5「待执行」：1. 建 `.git/privacy-patterns`：从 `private-notes.md` 取真实用户名、
-  主机名写成正则，核对它匹配得到 `private-notes.md`、在已入库文件里无命中 2. 重拍
-  `settings.png`、`popover.png`（OPT-030），替换前给用户看 3. 实机确认第 6 批界面改动
-- Don't repeat: `cumulativeTokens`、`usageHistory` 按 D-3 保留，不要再提议删掉；不要为内部清理
-  单独发版（D-5）；cc-switch 官方订阅用的是未公开接口，不要当成稳定 API 照搬
+Updated: 2026-11-04 00:01
+- Task: 无，上一个工作单元：/adopt 复查；参考资料和临时产出的位置从 `../materials/` 改为 `temp/`（D-8）
+- Stopped at: 已提交 `4b0a535`、`fcb8dfe`，main 领先 origin 2 个提交，未推送；之后这次收尾的
+  文档改动未提交，以 `git status -sb` 为准
+- Decisions: D-8、D-9
+- Waiting on user: D-5（agent 选择：内部清理不单独发版）；是否推送
+- Next: 按 §5「待执行」：1. 重拍 `settings.png`、`popover.png`（OPT-030），替换前给用户看
+  2. 实机确认第 6 批界面改动 3. 想接着看 cc-switch 识别服务商：还没看 `UsageScriptModal.tsx`
+  的余额/官方订阅预选和 deeplink 导入（临时克隆已删，要重新克隆到 `temp/`）
+- Don't repeat: 不建 `.git/privacy-patterns`（D-9）；`cumulativeTokens`、`usageHistory` 按 D-3 保留；
+  不为内部清理单独发版（D-5）；cc-switch 官方订阅用的是未公开接口，不要当成稳定 API 照搬
 
 ## 项目概况
 
@@ -276,7 +275,6 @@ ad-hoc 签名、没有 provisioning profile 的 app **能用钥匙串**，写、
 
 - [ ] **重拍 `docs/images/settings.png`、`popover.png`**（OPT-030），替换前给用户看。
 - [ ] **实机验证缺口**：OPT-016 / 017 / 018 / 019 / 020 / 022 / 028 的修复记录各列了要实机确认的点。用户 2026-09-30 看过设置窗口那批，没发现问题；第 6 批的界面改动（24 小时横轴、菜单栏显示 Picker、token 空态文案、通知副标题）还没确认。
-- [ ] **建 `.git/privacy-patterns`**：真实用户名、主机名一行一个正则（取自 `private-notes.md`），pre-commit hook 才拦得住项目特有的敏感词。2026-10-06 推送前只按通用规则（个人路径、内网 IP）查过。
 
 等外部条件：
 

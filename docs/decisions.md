@@ -107,3 +107,11 @@
 - 选择：B。参考资料、待整理笔记、临时产出放 `temp/`，临时文件和生成物写到 `temp/scratch/`。
 - 理由：用户决定；与实际位置和 agent-system 的约定一致。
 - 影响：AGENTS.md「隐私」一条。project-notes 的目录表和外部审查材料路径同步改为 `temp/`；D-1 等旧条目里的路径是历史记录，不改。
+
+### D-9 不建 .git/privacy-patterns（2026-11-03，用户决定）
+
+- 背景：§5 待执行里有一条「建 `.git/privacy-patterns`」，从 `private-notes.md` 取真实用户名、主机名写成正则，让 pre-commit 钩子拦项目特有的敏感词；/adopt 检查时问到这一步。
+- 选项：A 建 / B 不建，只靠钩子的通用规则
+- 选择：B。
+- 理由：用户决定。
+- 影响：删掉 §5 的这条待办和 Handoff 里的对应项；pre-commit 钩子仍按通用规则（个人路径、内网 IP 等）检查。以后要建，在项目里重新运行 /adopt。
