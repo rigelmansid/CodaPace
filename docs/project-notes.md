@@ -41,7 +41,7 @@ Scripts/          图标生成器，平时不用动
 | 文件 | 用途 |
 |---|---|
 | [README.md](../README.md)、[README.zh-CN.md](../README.zh-CN.md) | 面向使用者的入口，中英两份同步改 |
-| [AGENTS.md](../AGENTS.md)、`CLAUDE.md` | agent 与维护者的工作规则；`CLAUDE.md` 是符号链接 |
+| [AGENTS.md](../AGENTS.md) | agent 与维护者的工作规则 |
 | `docs/project-notes.md` | 本文 |
 | [docs/decisions.md](decisions.md) | 跨条目决策 D-n（2026-10-03 起） |
 | [docs/pitfalls.md](pitfalls.md) | 踩过的坑 |

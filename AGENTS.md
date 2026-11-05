@@ -1,6 +1,7 @@
 # AGENTS.md
 
-写给 AI 编程助手和维护者的工作规则。`CLAUDE.md` 是指向本文件的符号链接，只改本文件。
+写给 AI 编程助手和维护者的工作规则。Claude Code 和 Codex 都直接读本文件；不要新建 `CLAUDE.md` 或
+`CLAUDE.local.md`，有了它们 Claude Code 就不再读本文件。
 
 本文件只写**怎么做**。项目内容在 `docs/`：
 [project-notes.md](docs/project-notes.md)（Handoff、现状、架构、待办、规划；下文 § 指它的章节）、
