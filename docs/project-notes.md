@@ -8,17 +8,18 @@
 
 ## Handoff
 
-Updated: 2026-11-04 00:01
-- Task: 无，上一个工作单元：/adopt 复查；参考资料和临时产出的位置从 `../materials/` 改为 `temp/`（D-8）
-- Stopped at: `4b0a535`、`fcb8dfe`、`3e1bb4e` 已推送，origin 与本地同步；之后的改动
-  以 `git status -sb` 为准
-- Decisions: D-8、D-9
-- Waiting on user: D-5（agent 选择：内部清理不单独发版）
-- Next: 按 §5「待执行」：1. 重拍 `settings.png`、`popover.png`（OPT-030），替换前给用户看
-  2. 实机确认第 6 批界面改动 3. 想接着看 cc-switch 识别服务商：还没看 `UsageScriptModal.tsx`
-  的余额/官方订阅预选和 deeplink 导入（临时克隆已删，要重新克隆到 `temp/`）
-- Don't repeat: 不建 `.git/privacy-patterns`（D-9）；`cumulativeTokens`、`usageHistory` 按 D-3 保留；
-  不为内部清理单独发版（D-5）；cc-switch 官方订阅用的是未公开接口，不要当成稳定 API 照搬
+Updated: 2026-11-10 11:10
+- Task: 无，上一个工作单元：修第三轮审查（OPT-031…038）、发布 v2.4、本机从 2.2 升级到 2.4
+- Stopped at: `a279c15`、`8645e89`、`d793c8c` 已推送（此前未推的 `20d1b74` 一并推上）；本次 /wrap 的
+  文档改动也已提交推送，origin 与本地同步
+- Decisions: D-10（agent 选择）
+- Waiting on user: 实机看 v2.4（面板数字正常、钥匙串授权框选「始终允许」）；D-10 待确认
+- Next: 按 §5「待执行」：1. 实机过第三轮验证缺口（OPT-031 / 033 / 034）和 v2.4 更新提醒（发版第 5 步）
+  2. 重拍 `settings.png`、`popover.png`（OPT-030），替换前给用户看 3. 实机确认第 6 批界面改动
+  4. 想接着看 cc-switch 识别服务商：还没看 `UsageScriptModal.tsx`（临时克隆已删，要重新克隆到 `temp/`）
+- Don't repeat: 钥匙串覆盖别改回先删再加或原地更新（OPT-031）；日历边界别再用 `Calendar.nextDate`（坑 14）；
+  批量跑用 `xargs -0 -n 1` 加脚本，不用 `-I`（坑 15）；不建 `.git/privacy-patterns`（D-9）；
+  `cumulativeTokens`、`usageHistory` 按 D-3 保留；cc-switch 官方订阅是未公开接口，别当稳定 API 照搬
 
 ## 项目概况
 
@@ -53,8 +54,8 @@ Scripts/          图标生成器，平时不用动
 | `private-notes.md`（不入库） | 真实地址、用户名、个人配置 |
 | `temp/`（不入库，D-8） | 参考资料 `refs/`、待整理 `inbox/`、临时产出 `scratch/` |
 
-最新快照：v2.4 已发布（2026-11-10，`8645e89`，用户要求发版），含第三轮审查的修复（OPT-031…038）和 v2.3 之后的内部清理（`c83ec0c`）。发版第 5 步（看更新提醒）这次没做，见 §5。本机 `/Applications` 里运行的仍是正式版 2.2（用户自己换回去的）；
-用户要升级时，照 Release 说明「先退出、删旧版、再装」。
+最新快照：v2.4 已发布（2026-11-10，`8645e89`，用户要求发版），含第三轮审查的修复（OPT-031…038）和 v2.3 之后的内部清理（`c83ec0c`）。发版第 5 步（看更新提醒）这次没做，见 §5。本机 `/Applications` 里装的是正式版 2.4（2026-11-10 从 2.2 升级，照 Release 说明先退出、删旧版、再装；
+只删了 app 包，偏好、历史库、钥匙串没动）。
 
 ### 两份 backlog 的进度
 
@@ -65,7 +66,7 @@ Scripts/          图标生成器，平时不用动
 
 ### 验证现状（实测基线）
 
-下表的检查结果是 2026-09-30 的（历史记录，见 [log.md](log.md)），前三行 2026-11-10 重新跑过。若对不上，说明环境或代码有变，先查这里：
+下表的检查结果是 2026-09-30 的（历史记录，见 [log.md](log.md)），前四行 2026-11-10 重新跑过（构建产物是发布 v2.4 时核对的）。若对不上，说明环境或代码有变，先查这里：
 
 | 项目 | 结果 |
 |---|---|

@@ -20,6 +20,7 @@ D-n 见 [decisions.md](decisions.md)，坑 n 见 [pitfalls.md](pitfalls.md)。
 | 2026-10-05 / 06 | 删除没人读的 6 项能力声明（D-2），剩下两项保留（D-3）；删除只剩测试在调的 `QuotaCycles`（OPT-024 补做）和 `HistoryGaps.segments`（D-4），给画图路径补 1 例测试；/simplify 四路审查后清理注释；测试 490 → 481；提交 `c83ec0c` 并推送（用户要求） | 见验证记录；没有界面改动，不需实机 |
 | 2026-10-06 | 收尾文档提交并推送（`95ad9e7`，用户要求）；评估要不要发版，结论是内部清理不单独发版（D-5，agent 选择，待用户确认） | 推送后远端与本地都是 `95ad9e7`；核对 `v2.3..HEAD`：app 层只改 1 行注释，`Info.plist`、`build.sh`、`Package.swift` 未动 |
 | 2026-11-03 | 只读调研 cc-switch v4.0.25（`7afceec`）的额度/余额查询：按 `template_type` 分发，套餐与余额靠 base_url 匹配厂商，官方订阅读本机 CLI 的 OAuth 凭据，其余走内嵌 QuickJS 用户脚本；三家厂商的接口要点记在 §5 | 只读源码，没运行 cc-switch，也没调用任何接口；本仓库代码未改；临时克隆已删 |
+| 2026-11-09 / 10 | 第三轮审查（外部报告，基线 `20d1b74`）修复 OPT-031…038：钥匙串先写暂存再撤旧值（新文件 `SecretVault.swift`）、历史库读错抛出并拒绝高版本库、刷新的会话改动过身份校验才提交、`InFlightGate` 发票（`RefreshGate` 改回委托它）、异常数值不再崩溃、日历边界改用偏移换算（坑 14）、时钟回拨记未归属、测试临时库回收与登记核对；不变量 2 补写（D-10）。提交 `a279c15`；用户要求发布 v2.4（`8645e89`）；本机 `/Applications` 从 2.2 升级到 2.4 | 见验证记录 2026-11-10 两行。真实钥匙串、设置页与刷新的接线没实机验证；发版第 5 步（更新提醒）跳过，记在 §5 |
 
 ## 验证记录
 
@@ -36,3 +37,5 @@ D-n 见 [decisions.md](decisions.md)，坑 n 见 [pitfalls.md](pitfalls.md)。
 | 2026-10-03（历史记录） | 补结构（D-1）后重新跑过 `swift run CoreTests`（490 通过）和 UI 全量类型检查（无输出） | 原记在 project-notes 基线表的说明里，2026-10-06 移到这里 |
 | 2026-10-06 本机（本次） | `swift run CoreTests` 481 通过 · 0 失败；UI 全量类型检查无输出；供应商隔离核查无命中；乱码扫描干净。反向验证：注入「任一额度下降都算重置」，只有新补的 `testAResetInOneBucketDoesNotBreakAnother` 失败；关掉画图路径的空档断开，`testGapStartsNewSeries` 等 4 例失败；关掉 `gaps`，`testGapIntervalsAreReported` 越界崩溃 | Apple Swift 6.4、CommandLineTools、类型检查用 MacOSX26 SDK。只跑了 Core 测试和类型检查，没构建 app、没实机。链接时有 `ld: warning: search path … not found`，没影响结果，没深究 |
 | 2026-11-03 / 04 | /adopt 复查：已接入，只缺 `.git/privacy-patterns`，用户决定不建（D-9）；AGENTS.md、project-notes 里的 `../materials/` 改为 `temp/`（D-8）；提交 `4b0a535`（cc-switch 调研记录）、`fcb8dfe`（D-8），未推送 | 复查四个接入文件、`.gitignore`、pre-commit 链接、`temp/.gitignore` 均已就绪；仓库内除 D-1、D-8 正文外不再有 `../materials/`；乱码扫描干净；提交时 pre-commit 通过。没有代码改动，没跑测试 |
+| 2026-11-10 本机（本次） | `swift run CoreTests` 510 通过 · 0 失败（系统时区和另外 11 个时区各一遍）；UI 全量类型检查无输出；供应商隔离核查无命中；乱码扫描干净；每条修复做了反向验证（注入点见各 OPT 的修复记录）。日历边界：逐分钟对照扫全部 443 个时区（145 个在 2025–2027 年有切换），5,851,625 次比对，新实现 0 处不一致、旧实现 149,779 处 | Apple Swift 6.4、CommandLineTools、MacOSX26 SDK、macOS 26.6.2。日历结论与本机 Foundation 和时区数据的版本有关。真实钥匙串没测（建临时钥匙串会改搜索列表）；App 层接线只过了类型检查 |
+| 2026-11-10 发布与安装后（本次） | v2.4 构建产物 arm64、`minos 13.0`、bundle ID 不变、ad-hoc 签名校验通过；`curl` 核对 `releases/latest` 是 v2.4、tag 指向 `8645e89`，下载的 zip 哈希与说明一致（`065ee911…`）；本机升级后 2.4 启动约 10 分钟内无崩溃报告，启动后历史库的 WAL 有写入 | 只删了旧 app 包，偏好、历史库、钥匙串没动。菜单栏面板和钥匙串授权框没亲眼确认（用户看）；更新提醒（发版第 5 步）未验证 |
