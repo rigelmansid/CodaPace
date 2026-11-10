@@ -13,6 +13,8 @@ let allSuites: [TestSuite] = [
         ("testAccuracyAssertionFailsOutsideTolerance", { TestSupportTests().testAccuracyAssertionFailsOutsideTolerance() }),
         ("testAccuracyAssertionRejectsNaN", { TestSupportTests().testAccuracyAssertionRejectsNaN() }),
         ("testAccuracyAssertionHandlesInfinity", { TestSupportTests().testAccuracyAssertionHandlesInfinity() }),
+        ("testNoThrowAssertionReportsAThrow", { TestSupportTests().testNoThrowAssertionReportsAThrow() }),
+        ("testEveryTestMethodIsRegistered", { TestSupportTests().testEveryTestMethodIsRegistered() }),
     ]),
 
     ("TimeWindowTests", [
@@ -38,6 +40,9 @@ let allSuites: [TestSuite] = [
         ("testWindowFallsBackToRemainingSeconds", { ResetScheduleTests().testWindowFallsBackToRemainingSeconds() }),
         ("testFallbackWindowStartIsStableAcrossRefreshes", { ResetScheduleTests().testFallbackWindowStartIsStableAcrossRefreshes() }),
         ("testWindowIsNilWhenNoTimingDataAtAll", { ResetScheduleTests().testWindowIsNilWhenNoTimingDataAtAll() }),
+        ("testAnAbsurdWindowLengthIsNoWindowRatherThanACrash", { ResetScheduleTests().testAnAbsurdWindowLengthIsNoWindowRatherThanACrash() }),
+        ("testTimestampsBeyondAnyRealDateAreNoWindow", { ResetScheduleTests().testTimestampsBeyondAnyRealDateAreNoWindow() }),
+        ("testAnUnrealWindowReachesTheAlertKeyWithoutCrashing", { ResetScheduleTests().testAnUnrealWindowReachesTheAlertKeyWithoutCrashing() }),
         ("testWeeklyIntervalResolvesToPreviousMonday", { ResetScheduleTests().testWeeklyIntervalResolvesToPreviousMonday() }),
         ("testWeeklyIntervalIsNilWhenFieldsMissing", { ResetScheduleTests().testWeeklyIntervalIsNilWhenFieldsMissing() }),
         ("testDailyIntervalSpansLocalMidnightAndIsMarkedInferred", { ResetScheduleTests().testDailyIntervalSpansLocalMidnightAndIsMarkedInferred() }),
@@ -110,6 +115,9 @@ let allSuites: [TestSuite] = [
         ("testAMissingUsageOnAnUnlimitedTierDoesNotCount", { ClaudeCodeHubProviderTests().testAMissingUsageOnAnUnlimitedTierDoesNotCount() }),
         ("testVerifyRejectsAnUnrelatedJSONObject", { ClaudeCodeHubProviderTests().testVerifyRejectsAnUnrelatedJSONObject() }),
         ("testAScopedVerifyKeepsTheSessionOutOfTheSharedStore", { ClaudeCodeHubProviderTests().testAScopedVerifyKeepsTheSessionOutOfTheSharedStore() }),
+        ("testARefreshKeepsItsNewSessionAsideUntilCommitted", { ClaudeCodeHubProviderTests().testARefreshKeepsItsNewSessionAsideUntilCommitted() }),
+        ("testAnUncommittedRefreshCannotWriteBackACleanedUpSession", { ClaudeCodeHubProviderTests().testAnUncommittedRefreshCannotWriteBackACleanedUpSession() }),
+        ("testADroppedSessionIsDroppedOnlyOnCommit", { ClaudeCodeHubProviderTests().testADroppedSessionIsDroppedOnlyOnCommit() }),
         ("testAdaptersWithoutSessionsIgnoreTheScope", { ClaudeCodeHubProviderTests().testAdaptersWithoutSessionsIgnoreTheScope() }),
     ]),
 
@@ -130,6 +138,7 @@ let allSuites: [TestSuite] = [
         ("testIdentityIsAStableHashOfTheKey", { Sub2APIProviderTests().testIdentityIsAStableHashOfTheKey() }),
         ("testAMissingTotalDoesNotInflateTheDaysUsage", { Sub2APIProviderTests().testAMissingTotalDoesNotInflateTheDaysUsage() }),
         ("testANullTotalMakesTheReadingIncomplete", { Sub2APIProviderTests().testANullTotalMakesTheReadingIncomplete() }),
+        ("testANegativeTotalMakesTheReadingIncomplete", { Sub2APIProviderTests().testANegativeTotalMakesTheReadingIncomplete() }),
         ("testALimitWithoutItsUsageIsNotStoredAsZero", { Sub2APIProviderTests().testALimitWithoutItsUsageIsNotStoredAsZero() }),
         ("testAFullReadingIsStillComplete", { Sub2APIProviderTests().testAFullReadingIsStillComplete() }),
         ("testAnUnrelatedJSONObjectIsNotTakenForSub2API", { Sub2APIProviderTests().testAnUnrelatedJSONObjectIsNotTakenForSub2API() }),
@@ -274,6 +283,17 @@ let allSuites: [TestSuite] = [
         ("testSameTokenDoesNotReenter", { InFlightGateTests().testSameTokenDoesNotReenter() }),
         ("testDifferentTokenIsLetThrough", { InFlightGateTests().testDifferentTokenIsLetThrough() }),
         ("testStaleFinishDoesNotClearTheNewerToken", { InFlightGateTests().testStaleFinishDoesNotClearTheNewerToken() }),
+        ("testAnEarlierRunOfTheSameTokenNoLongerCounts", { InFlightGateTests().testAnEarlierRunOfTheSameTokenNoLongerCounts() }),
+    ]),
+
+    ("SecretVaultTests", [
+        ("testWritingCreatesOrReplacesTheItem", { SecretVaultTests().testWritingCreatesOrReplacesTheItem() }),
+        ("testAFailedAddKeepsTheOldValue", { SecretVaultTests().testAFailedAddKeepsTheOldValue() }),
+        ("testAFailedDeleteKeepsTheOldValueAndReportsItsOwnError", { SecretVaultTests().testAFailedDeleteKeepsTheOldValueAndReportsItsOwnError() }),
+        ("testAFailedRenameLeavesTheNewValueReadable", { SecretVaultTests().testAFailedRenameLeavesTheNewValueReadable() }),
+        ("testALeftoverStagingItemNeverShadowsTheMainItem", { SecretVaultTests().testALeftoverStagingItemNeverShadowsTheMainItem() }),
+        ("testRemovingDeletesTheStagedCopyToo", { SecretVaultTests().testRemovingDeletesTheStagedCopyToo() }),
+        ("testAReadFailureIsNotTakenForAMissingItem", { SecretVaultTests().testAReadFailureIsNotTakenForAMissingItem() }),
     ]),
 
     ("CalendarDailyTests", [
@@ -295,6 +315,9 @@ let allSuites: [TestSuite] = [
         ("testDailyPeriodsAreSeamlessAcrossSpringForward", { CalendarBoundaryTests().testDailyPeriodsAreSeamlessAcrossSpringForward() }),
         ("testDailyPeriodsAreSeamlessAcrossFallBack", { CalendarBoundaryTests().testDailyPeriodsAreSeamlessAcrossFallBack() }),
         ("testWeeklyPeriodsAreSeamlessAcrossTheTransition", { CalendarBoundaryTests().testWeeklyPeriodsAreSeamlessAcrossTheTransition() }),
+        ("testARepeatedResetTimeStartsTheDayOnlyOnce", { CalendarBoundaryTests().testARepeatedResetTimeStartsTheDayOnlyOnce() }),
+        ("testAHalfHourShiftKeepsEveryDaysBoundary", { CalendarBoundaryTests().testAHalfHourShiftKeepsEveryDaysBoundary() }),
+        ("testPeriodsAreSeamlessAcrossAHalfHourShift", { CalendarBoundaryTests().testPeriodsAreSeamlessAcrossAHalfHourShift() }),
         ("testHalfASecondBeforeTheBoundaryIsStillTheOldPeriod", { CalendarBoundaryTests().testHalfASecondBeforeTheBoundaryIsStillTheOldPeriod() }),
     ]),
 
@@ -384,6 +407,7 @@ let allSuites: [TestSuite] = [
         ("testV3RowsWithoutLimitsStayUnknownAfterMigration", { SchemaMigrationTests().testV3RowsWithoutLimitsStayUnknownAfterMigration() }),
         ("testTheV4ExpansionDoesNotRunTwice", { SchemaMigrationTests().testTheV4ExpansionDoesNotRunTwice() }),
         ("testRollingBackToV3AndUpgradingAgainAddsNoGhostBuckets", { SchemaMigrationTests().testRollingBackToV3AndUpgradingAgainAddsNoGhostBuckets() }),
+        ("testANewerSchemaIsLeftUntouched", { SchemaMigrationTests().testANewerSchemaIsLeftUntouched() }),
         ("testALegacyPartitionIsAdoptedUnderTheNewKey", { SchemaMigrationTests().testALegacyPartitionIsAdoptedUnderTheNewKey() }),
         ("testEveryPartitionedTableIsCarriedOver", { SchemaMigrationTests().testEveryPartitionedTableIsCarriedOver() }),
         ("testAdoptingIsIdempotentAcrossReopens", { SchemaMigrationTests().testAdoptingIsIdempotentAcrossReopens() }),
@@ -413,6 +437,7 @@ let allSuites: [TestSuite] = [
         ("testLongGapWithinOneDayIsAttributedToThatDay", { TokenAttributionTests().testLongGapWithinOneDayIsAttributedToThatDay() }),
         ("testCrossingMidnightIsNotAttributedToEitherDay", { TokenAttributionTests().testCrossingMidnightIsNotAttributedToEitherDay() }),
         ("testAttributionFollowsTheGivenTimeZone", { TokenAttributionTests().testAttributionFollowsTheGivenTimeZone() }),
+        ("testAClockRollbackIsNotAttributedToAnyDay", { TokenAttributionTests().testAClockRollbackIsNotAttributedToAnyDay() }),
     ]),
 
     ("UnattributedStorageTests", [
@@ -420,6 +445,7 @@ let allSuites: [TestSuite] = [
         ("testMidnightDeltaLandsInUnattributedNotInADay", { UnattributedStorageTests().testMidnightDeltaLandsInUnattributedNotInADay() }),
         ("testAttributionResumesAfterMidnight", { UnattributedStorageTests().testAttributionResumesAfterMidnight() }),
         ("testNothingIsLostAcrossTheBoundary", { UnattributedStorageTests().testNothingIsLostAcrossTheBoundary() }),
+        ("testAClockRollbackLosesNoTokens", { UnattributedStorageTests().testAClockRollbackLosesNoTokens() }),
     ]),
 
     ("PointSelectionTests", [
@@ -537,6 +563,9 @@ let allSuites: [TestSuite] = [
         ("testWideGapStillYieldsAnAmount", { TokenDeltaTests().testWideGapStillYieldsAnAmount() }),
         ("testCounterRegressionProducesNoDelta", { TokenDeltaTests().testCounterRegressionProducesNoDelta() }),
         ("testNoChangeProducesNoDelta", { TokenDeltaTests().testNoChangeProducesNoDelta() }),
+        ("testAnOverflowingRequestCountIsNoDelta", { TokenDeltaTests().testAnOverflowingRequestCountIsNoDelta() }),
+        ("testAnInfiniteTokenDifferenceIsNoDelta", { TokenDeltaTests().testAnInfiniteTokenDifferenceIsNoDelta() }),
+        ("testAClockRollbackStillYieldsAnAmount", { TokenDeltaTests().testAClockRollbackStillYieldsAnAmount() }),
     ]),
 
     ("KeyTests", [
@@ -587,6 +616,7 @@ let allSuites: [TestSuite] = [
         ("testEmptyStoreHasNoLastSample", { HistoryStoreTests().testEmptyStoreHasNoLastSample() }),
         ("testRangeQueryIsOrderedAndBounded", { HistoryStoreTests().testRangeQueryIsOrderedAndBounded() }),
         ("testTokenDeltaAccumulatesWithinADay", { HistoryStoreTests().testTokenDeltaAccumulatesWithinADay() }),
+        ("testReadErrorsAreReportedNotTakenForAnEmptyHistory", { HistoryStoreTests().testReadErrorsAreReportedNotTakenForAnEmptyHistory() }),
         ("testAccountsArePartitioned", { HistoryStoreTests().testAccountsArePartitioned() }),
         ("testPruneRemovesOldSamplesOnly", { HistoryStoreTests().testPruneRemovesOldSamplesOnly() }),
         ("testTransactionCommitsEverythingTogether", { HistoryStoreTests().testTransactionCommitsEverythingTogether() }),
@@ -606,6 +636,7 @@ let allSuites: [TestSuite] = [
         ("testMissingRequiredCostMakesUsageIncomplete", { FieldValidityTests().testMissingRequiredCostMakesUsageIncomplete() }),
         ("testNullRequiredCostMakesUsageIncomplete", { FieldValidityTests().testNullRequiredCostMakesUsageIncomplete() }),
         ("testMissingUsageTotalsMakeUsageIncomplete", { FieldValidityTests().testMissingUsageTotalsMakeUsageIncomplete() }),
+        ("testNegativeTotalsMakeUsageIncomplete", { FieldValidityTests().testNegativeTotalsMakeUsageIncomplete() }),
         ("testMissingOptionalFieldsStayComplete", { FieldValidityTests().testMissingOptionalFieldsStayComplete() }),
         ("testRealResponseShapeStaysComplete", { FieldValidityTests().testRealResponseShapeStaysComplete() }),
     ]),
@@ -626,6 +657,7 @@ let allSuites: [TestSuite] = [
         ("testFirstWriteStoresTheSampleWithoutInventingUsage", { HistoryWriterTests().testFirstWriteStoresTheSampleWithoutInventingUsage() }),
         ("testFailureBetweenTheTwoWritesLeavesNoPartialCommit", { HistoryWriterTests().testFailureBetweenTheTwoWritesLeavesNoPartialCommit() }),
         ("testDeltaSurvivesAFailedRefreshAcrossRestart", { HistoryWriterTests().testDeltaSurvivesAFailedRefreshAcrossRestart() }),
+        ("testAFailedBaselineReadAbortsTheWriteAndLosesNoTokens", { HistoryWriterTests().testAFailedBaselineReadAbortsTheWriteAndLosesNoTokens() }),
         ("testResetDropsBaselinesSoANewAccountStartsClean", { HistoryWriterTests().testResetDropsBaselinesSoANewAccountStartsClean() }),
     ]),
 

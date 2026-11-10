@@ -220,6 +220,44 @@ final class ResetScheduleTests: XCTestCase {
         XCTAssertNil(w)
     }
 
+    /// OPT-035:解码器认的只是「这是个整数」。极大的分钟数从前在 `rateLimitWindow * 60`
+    /// 这一步整数溢出,进程当场 trap,catch 接不住。现在算不出就是没有窗口
+    func testAnAbsurdWindowLengthIsNoWindowRatherThanACrash() {
+        let json = #"{"rateLimitWindow":9223372036854775807,"windowRemainingSeconds":1}"#
+        let limits = try! JSONDecoder().decode(Limits.self, from: Data(json.utf8))
+        let schedule = ResetSchedule(timeZone: shanghai)
+        XCTAssertNil(schedule.windowInterval(limits: limits, now: makeDate(2026, 9, 8)))
+        XCTAssertNil(schedule.windowRule(limits: limits, now: makeDate(2026, 9, 8)))
+    }
+
+    /// 同一类:类型都对、却根本不是时刻的数。从前它们算出一个几十亿年之外的窗口,
+    /// 再在倒计时、告警去重键、周期 ID 的 `Int(...)` 里 trap
+    func testTimestampsBeyondAnyRealDateAreNoWindow() {
+        let schedule = ResetSchedule(timeZone: shanghai)
+        for json in [#"{"windowStartTime":1e300,"windowEndTime":2e300}"#,
+                     #"{"windowStartTime":1788797068749,"windowEndTime":1e300}"#,
+                     #"{"rateLimitWindow":60,"windowRemainingSeconds":9223372036854775807}"#] {
+            let limits = try! JSONDecoder().decode(Limits.self, from: Data(json.utf8))
+            XCTAssertNil(schedule.windowInterval(limits: limits, now: makeDate(2026, 9, 8)), json)
+        }
+    }
+
+    /// 同上,走完从映射到告警去重键的整条路:从前 1e300 毫秒的窗口在 `dedupeKey` 的 `Int(...)` 里 trap。
+    /// 这条额度照常显示、照常报低额度,只是没有周期,去重退回「每天一次」
+    func testAnUnrealWindowReachesTheAlertKeyWithoutCrashing() {
+        let json = #"""
+        {"limits": {"rateLimitCost": 20, "currentWindowCost": 19,
+                    "windowStartTime": 1e300, "windowEndTime": 2e300}}
+        """#
+        let stats = try! JSONDecoder().decode(UserStats.self, from: Data(json.utf8))
+        let now = makeDate(2026, 9, 8, 12)
+        let snapshot = RelayProvider().buildSnapshot(stats: stats, monthly: nil,
+                                                     schedule: ResetSchedule(timeZone: shanghai), now: now)
+        XCTAssertNil(snapshot.bucket(id: "window")?.window)
+        let keys = AlertPolicy.candidates(for: snapshot, now: now, timeZone: shanghai).map(\.dedupeKey)
+        XCTAssertTrue(keys.contains { $0.hasPrefix("lowQuota|window|") }, "\(keys)")
+    }
+
     /// weeklyResetDay 用服务端 JS getDay() 约定:1 = 周一
     /// 2026-09-08 是周二,上一个周一 00:00 应是 09-07
     func testWeeklyIntervalResolvesToPreviousMonday() {

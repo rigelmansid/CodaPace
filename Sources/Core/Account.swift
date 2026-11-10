@@ -134,46 +134,39 @@ public struct AccountIdentity: Equatable, Hashable {
 /// 写一条过时采样),它的收尾还会清掉后发那次的在飞标记。所以每次准入发一张票,
 /// 提交和收尾都认票,不认账户。
 ///
-/// 不再委托 `InFlightGate`:那边的规则是「令牌相同才不重入」,而这里的票每次都不同,
-/// 重入仍要按账户挡 —— 两条规则对不上同一个令牌。
+/// 票的机制在 `InFlightGate` 里(OPT-034):设置窗口的测试连接栽了同一个跟头,
+/// 两处共用一份,这里只多一条「没配置过的账户不放行」。OPT-021 那时把票写在这里、
+/// 不再委托 `InFlightGate`,是因为那边当时还只认对象。
 public struct RefreshGate {
 
-    /// 一次刷新的准入凭证。账户之外带一个序号,区分同一账户的先后两次
-    public struct Ticket: Equatable {
-        public let account: AccountIdentity
-        let serial: Int
-    }
+    /// 一次刷新的准入凭证:账户(`token`)加一个序号,区分同一账户的先后两次
+    public typealias Ticket = InFlightGate<AccountIdentity>.Ticket
 
-    private var inFlight: Ticket?
-    private var issued = 0
+    private var gate = InFlightGate<AccountIdentity>()
 
     public init() {}
 
-    public var isLoading: Bool { inFlight != nil }
+    public var isLoading: Bool { gate.isBusy }
 
     /// 在飞刷新所属的账户;空闲时为 nil
-    public var loadingAccount: AccountIdentity? { inFlight?.account }
+    public var loadingAccount: AccountIdentity? { gate.token }
 
-    /// 能不能为 `account` 开一次刷新。放行时返回这次的票,它已被记为在飞的那个。
+    /// 能不能为 `account` 开一次刷新。放行时返回这次的票,它已被记为在飞的那张。
+    /// 同账户不重入;换账户放行。
     public mutating func begin(_ account: AccountIdentity) -> Ticket? {
         // 没配置过的账户根本不该发请求
         guard account.isConfigured else { return nil }
-        // 同账户不重入;换账户放行
-        guard inFlight?.account != account else { return nil }
-        issued += 1
-        let ticket = Ticket(account: account, serial: issued)
-        inFlight = ticket
-        return ticket
+        return gate.begin(account)
     }
 
     /// 这次刷新还算不算数:在它之后没有别的刷新被放行过。提交前必须问
     public func isCurrent(_ ticket: Ticket) -> Bool {
-        inFlight == ticket
+        gate.isCurrent(ticket)
     }
 
     /// 一次刷新结束。只有 `ticket` 仍是在飞的那张才把门空出来
     public mutating func finish(_ ticket: Ticket) {
-        if inFlight == ticket { inFlight = nil }
+        gate.finish(ticket)
     }
 }
 

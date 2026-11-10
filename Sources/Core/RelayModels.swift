@@ -108,6 +108,10 @@ public struct UsageBlock: Decodable, Equatable {
     /// 两个**累计值**是不是都真的在响应里。
     /// 它们靠相邻两次做差得出当天用量,一次假的 0 会在下一次恢复正常时
     /// 变成一整笔凭空冒出来的用量。`cost` 不参与历史,所以不算在内。
+    ///
+    /// 负数也不算(OPT-035):累计值不可能小于 0,那是坏数据,不是观测值。
+    /// 进了库它就是下一次做差的基线 —— 小一点的负数把下一段增量凭空抬高,
+    /// `Int.min` 那样的则让请求数相减溢出。
     public var hasAllTotals = true
 
     public init() {}
@@ -122,7 +126,7 @@ public struct UsageBlock: Decodable, Equatable {
         allTokens = tokens ?? 0
         requests = count ?? 0
         cost = try c.number(.cost) ?? 0
-        hasAllTotals = tokens != nil && count != nil
+        hasAllTotals = (tokens.map { $0 >= 0 } ?? false) && (count.map { $0 >= 0 } ?? false)
     }
 }
 

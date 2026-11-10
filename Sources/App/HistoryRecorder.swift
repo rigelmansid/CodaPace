@@ -134,21 +134,32 @@ final class HistoryRecorder {
     // 和 record 的区别在于写入必须绑定快照抓取时的身份,读取只需要此刻的。
 
     func samples(from: Date, to: Date) -> [Sample] {
-        (try? ensureStore(for: Config.account).samples(from: from, to: to)) ?? []
+        read([]) { try $0.samples(from: from, to: to) }
     }
 
     func tokenDays(from: Date, to: Date) -> [TokenDay] {
-        guard let store = try? ensureStore(for: Config.account) else { return [] }
-        return (try? store.tokenDays(from: DayKey.string(for: from),
-                                     to: DayKey.string(for: to))) ?? []
+        read([]) { try $0.tokenDays(from: DayKey.string(for: from), to: DayKey.string(for: to)) }
     }
 
     func sampleCount() -> Int {
-        (try? ensureStore(for: Config.account).sampleCount()) ?? 0
+        read(0) { try $0.sampleCount() }
     }
 
     /// 历史里出现过哪些额度桶。离线时快照是 nil,额度选择器靠它才不至于整个空掉。
     func knownBucketIDs() -> [String] {
-        (try? ensureStore(for: Config.account).knownBucketIDs()) ?? []
+        read([]) { try $0.knownBucketIDs() }
+    }
+
+    /// 读失败时界面照旧拿到空结果,但原因记进 `lastError`(OPT-032)。
+    ///
+    /// 库的读循环从前把读错当成「读完了」,这里再一层 `try?`,读坏了的库在图表上就是
+    /// 「还没有采样」—— OPT-028 修的正是这句假话,只是当时只顾到了打不开、写不进的情形。
+    private func read<Value>(_ fallback: Value, _ body: (HistoryStore) throws -> Value) -> Value {
+        do {
+            return try body(ensureStore(for: Config.account))
+        } catch {
+            lastError = error.localizedDescription
+            return fallback
+        }
     }
 }

@@ -75,16 +75,20 @@ struct SettingsView: View {
     @State private var verifiedConnection: Connection?
 
     /// 测试时换来的登录会话先放这里,**保存成功才移交**给正式存储(钥匙串)。
-    /// 测试连接什么都不落盘(OPT-017);输入一变就换一份新的,旧的随之丢掉
+    /// 测试连接什么都不落盘(OPT-017);输入一变就换一份新的,旧的随之丢掉。
+    /// 测试通过时它指向那次测试实际用的那一份(OPT-034),移交的会话和已验证的连接对得上
     @State private var probeSessions = InMemorySessionTokenStore()
 
     /// 密钥默认遮起来。**刻意给一个「显示」开关** —— 粘贴错一个字符
     /// 却看不见,只会对着一句「连接失败」反复试。
     @State private var revealSecret = false
 
-    /// 在飞的那次测试对应的是**哪一段输入**。
+    /// 在飞的那次测试对应的是**哪一段输入**,以及是第几次(票)。
     /// 没有它就会出现:测试在飞时用户改了网址,旧结果回来照样写进界面,
     /// 于是显示「连接成功」,而那说的是上一个网址。
+    ///
+    /// 光认输入不够(OPT-034):测 A、改成 B 再测、改回 A 再测,先后两次 A 的输入一模一样 ——
+    /// 先发的那次回来照样写进界面,它的收尾还会清掉后发那次的在飞标记。所以和刷新一样认票。
     @State private var probe = InFlightGate<String>()
 
     /// 保存时是否同时存档,以及叫什么(EXT-010)。
@@ -206,7 +210,8 @@ struct SettingsView: View {
 
                 // 只挡「正在测的就是这段输入」(OPT-020)。改过输入之后旧测试还在飞也要能重测 ——
                 // 旧结果回来时过不了提交前的校验,本来就会作废;从前挡的是 isBusy,
-                // 陌生网址依次试两家、每个请求 15 秒超时,按钮能灰上几十秒
+                // 陌生网址依次试两家、每个请求 15 秒超时,按钮能灰上几十秒。
+                // 旧测试的收尾认票(OPT-034),清不掉新测试的在飞标记,按钮不会提前亮起来
                 Button(l10n.t(.setupTest)) { test() }
                     .disabled(resolved == nil || probe.token == probeKey)
 
@@ -452,25 +457,28 @@ struct SettingsView: View {
             ? ProviderRegistry.guesses(site: input, key: keyInput)
             : [resolved]
 
-        // 整个流程只认这一段输入。和刷新那边同一个道理:
+        // 整个流程只认这一段输入、这一次测试。和刷新那边同一个道理:
         // 中途用户可能已经把网址改了,那这次的结果就不属于屏幕上这段文字了。
         let probed = probeKey
-        guard probe.begin(probed) else { return }
+        guard let run = probe.begin(probed) else { return }
         result = .testing
         let sessions = probeSessions
 
         Task {
-            defer { probe.finish(probed) }
+            defer { probe.finish(run) }
             var failures: [String] = []
             for attempt in attempts {
                 do {
                     // 只验连通性,这时还没学到任何重置规则,所以给一个默认 schedule
                     let report = try await attempt.adapter.sessionScoped(to: sessions)
                         .verify(attempt.connection, language: l10n.language)
-                    // 提交前校验:输入变了就整份丢掉 ——
-                    // 否则界面会显示「连接成功」,而那说的是上一个网址
-                    guard probeKey == probed else { return }
+                    // 提交前校验:得是最新的那次测试(OPT-034),输入也没变 ——
+                    // 否则界面会显示「连接成功」,而那说的是上一个网址或上一次测试
+                    guard probe.isCurrent(run), probeKey == probed else { return }
                     verifiedConnection = attempt.connection
+                    // 保存时移交的会话认**这次测试实际用的那一份**:测试在飞时把输入改了又改回来,
+                    // `probeSessions` 已经换成新的一份,这次登录换来的会话却在 `sessions` 里
+                    probeSessions = sessions
                     result = .success(report)
                     // 预填昵称。已存过的沿用用户起的名字 —— 重测一次不该把它冲掉
                     let account = ProviderRegistry.resolvedForSaving(attempt.connection, report: report)?.account
@@ -484,7 +492,7 @@ struct SettingsView: View {
             }
             // 都没跑通:每一种各自的原因都列出来 —— 分不清站点是哪种软件时,
             // 只报一条会把人引向错的方向
-            guard probeKey == probed else { return }
+            guard probe.isCurrent(run), probeKey == probed else { return }
             result = .failure(failures.joined(separator: "\n"))
         }
     }

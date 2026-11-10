@@ -119,7 +119,8 @@ final class UsageService: ObservableObject {
         if changed {
             // 没存档的账户一被切走,它的密钥和会话就再也够不着了 —— 删除入口只在存档列表里。
             // 不存档就是一次性配置(OPT-019,用户 2026-09-30 选定):切走即清,不留孤儿。
-            // 删失败不拦切换:最坏也就是回到修之前的样子
+            // 删失败不拦切换:最坏也就是回到修之前的样子。
+            // 它那次还在飞的刷新登录回来,也写不回会话:会话改动要过提交前的身份校验(OPT-033)
             if previous.isConfigured, !archive.contains(previous) {
                 try? Config.removeCredential(for: previous)
             }
@@ -197,24 +198,34 @@ final class UsageService: ObservableObject {
         guard let ticket = gate.begin(account) else { return }
         defer { gate.finish(ticket) }
 
+        // 登录换来的会话也是这次刷新的副作用,先放在一边,和下面几样一起过身份校验(OPT-033)。
+        // 从前登录一回来就写进钥匙串:旧刷新在飞时账户被清理(切走未存档的、删掉存档),
+        // 刚删掉的会话会被它写回来,界面上再也删不掉
+        let sessions = StagedSessionTokenStore(over: SessionTokens.store)
+
         do {
             // 协议细节全在适配器里:通用层只说「给这个账户拉一次用量」。
             // 新增供应商不该让这段流程长出任何分支 —— 那正是适配器边界存在的理由。
             // 身份和密钥一次取齐,一路传到适配器 —— 中途不再回头读配置。
             // 密钥也是身份的一部分:只定住身份而让适配器自己去取密钥,
             // 换账户时同样会串(见 Connection)。
-            let adapter = ProviderRegistry.adapter(for: account)
+            let adapter = ProviderRegistry.adapter(for: account).sessionScoped(to: sessions)
             let built = try await adapter.fetchUsage(try Config.connection(for: account),
                                                      schedule: Config.schedule(for: account),
                                                      language: Config.language)
 
             // 提交前校验身份:上面的 await 期间用户可能已经换了账户。
             // 那这份结果属于上一个账户 —— 既不能显示,也不能写进新账户的历史,
-            // 更不能拿它去触发新账户的通知。整份丢掉,新账户自己那次刷新会补上。
+            // 更不能拿它去触发新账户的通知,登录换来的会话也不落盘。
+            // 整份丢掉,新账户自己那次刷新会补上。
             //
             // 光比账户不够(OPT-021):A → B → A 之后同一账户有两次在飞,先发的那次
             // 账户也对得上。所以还要问这张票是不是最新的那张
             guard gate.isCurrent(ticket), Config.account == account else { return }
+
+            // 和清理账户都在主线程上,两者不会交错:清理在前,这里就过不了上面的校验;
+            // 这里在前,之后的清理照常把它删掉
+            sessions.commit()
 
             // fetchedAt 是适配器在拿到数据之后打的点,倒计时和 pace 都按它算
             now = built.fetchedAt
@@ -230,6 +241,10 @@ final class UsageService: ObservableObject {
         } catch {
             // 同样要校验:旧账户(或同账户更早那次)的失败不该盖在新结果头上显示成 Offline
             guard gate.isCurrent(ticket), Config.account == account else { return }
+
+            // 失败的刷新也可能已经换到了新会话(登录成功、后面的请求失败)或发现旧会话失效,
+            // 照样记下 —— 否则下一次又要多登录一遍
+            sessions.commit()
 
             // 刷新失败时**保留**上一次的快照,只把错误记下来。
             // 菜单栏留着旧数字,总好过突然空白。

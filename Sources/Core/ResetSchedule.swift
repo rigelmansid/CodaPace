@@ -55,15 +55,16 @@ public struct ResetSchedule {
     }
 
     /// 优先用接口给的起止时间戳;缺失时退回「剩余秒数 + 窗口长度」反推。
-    /// 两者都没有就返回 nil —— 上层据此不显示 pace。
+    /// 两者都没有就返回 nil —— 上层据此不显示 pace。算出来的不是真实时刻也返回 nil,
+    /// 见 `representable`。
     public func windowInterval(limits: Limits, now: Date) -> TimeWindow? {
         // 毫秒时间戳
         if limits.windowStartTime > 0, limits.windowEndTime > limits.windowStartTime {
-            return TimeWindow(
+            return Self.representable(TimeWindow(
                 start: Date(timeIntervalSince1970: limits.windowStartTime / 1000),
                 end: Date(timeIntervalSince1970: limits.windowEndTime / 1000),
                 isInferred: false
-            )
+            ))
         }
 
         // 退路:现在 + 剩余秒数 = 结束,再往前推一个窗口长度。
@@ -72,14 +73,28 @@ public struct ResetSchedule {
         // 一点网络延迟,于是每次刷新反推出的起点都差一两秒 —— 而告警去重键和历史周期 ID
         // 都拿起点当周期的身份:同一个窗口里低额度告警几乎每分钟重发一次。
         // 剩余时间因此最多差 30 秒,对小时级的窗口无关紧要
+        //
+        // 窗口长度先转浮点再乘 60(OPT-035):从前是 `TimeInterval(rateLimitWindow * 60)`,
+        // 整数乘法在前,对方报一个极大的分钟数就溢出,进程当场 trap
         if limits.rateLimitWindow > 0, limits.windowRemainingSeconds > 0 {
             let raw = now.timeIntervalSince1970 + TimeInterval(limits.windowRemainingSeconds)
             let end = Date(timeIntervalSince1970: (raw / 60).rounded() * 60)
-            let start = end.addingTimeInterval(-TimeInterval(limits.rateLimitWindow * 60))
-            return TimeWindow(start: start, end: end, isInferred: false)
+            let start = end.addingTimeInterval(-TimeInterval(limits.rateLimitWindow) * 60)
+            return Self.representable(TimeWindow(start: start, end: end, isInferred: false))
         }
 
         return nil
+    }
+
+    /// 窗口两头得是真实存在的时刻:落在 Foundation 自己划的 `distantPast…distantFuture`
+    /// (公元 1 年到 4001 年)之内,否则当作没给(OPT-035)。
+    ///
+    /// 这不是在判断「窗口多长才合理」—— 那得有证据,我们没有 —— 只挡掉根本不是时刻的数。
+    /// 1e300 毫秒的时间戳、2^63 秒的剩余时间,解码时类型都对,算出来的「时刻」却在
+    /// 几十亿年之外,一路流到倒计时、告警去重键、周期 ID 里的 `Int(...)`,超出 Int 就 trap。
+    /// 认不出就是 nil:这条额度照常显示用量,只是不给周期和 pace,和缺字段一样(不变量 3)。
+    static func representable(_ window: TimeWindow) -> TimeWindow? {
+        window.start >= .distantPast && window.end <= .distantFuture ? window : nil
     }
 
     // MARK: - 每周 Opus

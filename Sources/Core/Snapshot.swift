@@ -47,7 +47,8 @@ public struct Snapshot: Equatable {
     public let fetchedAt: Date
 
     /// 这份快照的用量数值是不是都真的观测到了。false 表示响应里有必要字段缺失或为 null,
-    /// 相应的数字是退回来的 0 —— 可以显示,但**不能进历史**。理由见 `UserStats.hasCompleteUsage`。
+    /// 相应的数字是退回来的 0;或者累计值是负数这种不可能的值(OPT-035)——
+    /// 可以显示,但**不能进历史**。理由见 `UserStats.hasCompleteUsage`。
     public let hasCompleteUsage: Bool
 
     public init(name: String, isActive: Bool, gauges: [QuotaBucket],

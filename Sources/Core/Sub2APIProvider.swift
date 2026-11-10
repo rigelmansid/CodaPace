@@ -192,9 +192,11 @@ extension Sub2APIProvider {
             fetchedAt: now,
             // 三件事都要齐才算完整(OPT-015)。累计值尤其要紧:它缺一次,`Sample` 就把它
             // 退成 0 落库并推进基线,下一次恢复的累计值会整段被记成当天的新增 ——
-            // 实测 `1000 → 缺 → 1200` 当天记了 1200 而不是 200,而且永久记在那里
+            // 实测 `1000 → 缺 → 1200` 当天记了 1200 而不是 200,而且永久记在那里。
+            // 负的累计值同样不算观测值(OPT-035,理由见中转站的 `UsageBlock.hasAllTotals`)
             hasCompleteUsage: !gauges.isEmpty && !missingUsed
-                && usage.totalTokens != nil && usage.totalRequests != nil
+                && (usage.totalTokens.map { $0 >= 0 } ?? false)
+                && (usage.totalRequests.map { $0 >= 0 } ?? false)
         )
     }
 

@@ -31,7 +31,7 @@ arm64，`-target arm64-apple-macos13.0`；源码按 `-swift-version 5` 编，不
 ## 命令
 
 ```bash
-swift run CoreTests    # 481 例，应全绿。改 Core 或测试后必跑
+swift run CoreTests    # 510 例，应全绿。改 Core 或测试后必跑
 ./build.sh             # 构建 build/CodaPace.app（ad-hoc 签名）
 ```
 
@@ -90,7 +90,8 @@ swiftc -typecheck -swift-version 5 -target arm64-apple-macos13.0 \
    baseURL + apiId，通知去重）。只有兜底适配器的账户能认领 `legacyStorageKey` 下的老分区。
    中转站的四个桶 ID（`total` / `daily` / `weeklyOpus` / `window`）不要改。
 2. **跨 `await` 必须校验身份**：开头定住身份 → 提交前比对 → 不符就整份丢弃（不显示、
-   不入库、不通知），共用 `InFlightGate<Token>`。流程中途不回头读全局配置（OPT-001）。
+   不入库、不通知、不写会话，OPT-033）。提交和收尾认票不认对象，共用 `InFlightGate<Token>`
+   （OPT-021、OPT-034）。流程中途不回头读全局配置（OPT-001）。见 D-10。
 3. **不发明数据**：「未知」「零」「不限」是三件事。缺数据时不取「合理默认值」，如实标缺。
    采信供应商自己可核对的声明不算发明（如 tu-zi 的美元单位，证据在其用量页面）。
 4. **日历规则 ≠ 固定时长**：由 `ResetPolicy` 的各策略处理，不引入「统一按秒数往回推」。

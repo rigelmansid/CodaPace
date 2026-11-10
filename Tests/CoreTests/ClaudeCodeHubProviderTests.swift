@@ -295,6 +295,69 @@ final class ClaudeCodeHubProviderTests: XCTestCase {
         XCTAssertNil(shared.token(for: connection.account))
     }
 
+    // ── 刷新期间的会话改动(OPT-033) ─────────────────────
+
+    /// 刷新换来的会话先暂存,提交前不进正式存储,提交才写进去。读的时候认暂存的那份 ——
+    /// 同一次刷新后面的请求接着用新会话,不登录第二遍
+    func testARefreshKeepsItsNewSessionAsideUntilCommitted() {
+        let shared = InMemorySessionTokenStore()
+        let staged = StagedSessionTokenStore(over: shared)
+        let transport = opaqueSite(validSession: "sid_old", issuing: "sid_new")
+        let adapter = ClaudeCodeHubProvider(transport: transport, sessions: shared).sessionScoped(to: staged)
+        guard let connection = hub.parseConnection(site: site, key: "sk-lab") else { return XCTFail("解析不出连接") }
+
+        do { _ = try runAsync { try await adapter.fetchUsage(connection, schedule: ResetSchedule(), language: .zhHans) } }
+        catch { return XCTFail("抓取失败:\(error)") }
+
+        XCTAssertEqual(transport.logins, 1, "时区那个请求应当接着用刚换来的会话")
+        XCTAssertEqual(staged.token(for: connection.account), "sid_new")
+        XCTAssertNil(shared.token(for: connection.account), "提交之前不该落进正式存储")
+
+        staged.commit()
+        XCTAssertEqual(shared.token(for: connection.account), "sid_new")
+    }
+
+    /// 审查原样复现的那一条:旧刷新的登录还在路上,账户被清理掉(会话删了)。登录回来时
+    /// 这次刷新已经过不了身份校验、不提交 —— 正式存储里不能再冒出这个账户的会话。
+    /// 从前登录一回来就写进正式存储,清理刚删掉的会话被原样写回,界面上再也删不掉
+    func testAnUncommittedRefreshCannotWriteBackACleanedUpSession() {
+        let shared = InMemorySessionTokenStore()
+        guard let connection = hub.parseConnection(site: site, key: "sk-lab") else { return XCTFail("解析不出连接") }
+        shared.setToken("sid_old", for: connection.account)
+
+        // 登录请求到站的那一刻,账户被清理(切走未存档的账户、删掉存档,都会删它的会话)
+        let opaque = opaqueSite(validSession: "sid_expired_elsewhere", issuing: "sid_new")
+        let transport = ScriptedTransport { request in
+            if request.url?.path == "/api/auth/login" { shared.setToken(nil, for: connection.account) }
+            return opaque.script(request)
+        }
+        let staged = StagedSessionTokenStore(over: shared)
+        let adapter = ClaudeCodeHubProvider(transport: transport, sessions: shared).sessionScoped(to: staged)
+
+        do { _ = try runAsync { try await adapter.fetchUsage(connection, schedule: ResetSchedule(), language: .zhHans) } }
+        catch { return XCTFail("抓取失败:\(error)") }
+
+        XCTAssertEqual(transport.logins, 1)
+        // 这次刷新不算数,不提交 —— 换来的会话随 staged 一起丢掉
+        XCTAssertNil(shared.token(for: connection.account))
+    }
+
+    /// 「这次把它删了」(401 之后会话作废)也要等提交。暂存里删了就读不到,不能退回去读正式存储那份
+    func testADroppedSessionIsDroppedOnlyOnCommit() {
+        let shared = InMemorySessionTokenStore()
+        let account = AccountIdentity(providerID: ClaudeCodeHubProvider.id,
+                                      baseURL: "https://hub.example.com", apiId: "k")
+        shared.setToken("sid_old", for: account)
+        let staged = StagedSessionTokenStore(over: shared)
+
+        staged.setToken(nil, for: account)
+        XCTAssertNil(staged.token(for: account))
+        XCTAssertEqual(shared.token(for: account), "sid_old")
+
+        staged.commit()
+        XCTAssertNil(shared.token(for: account))
+    }
+
     /// 不用会话的适配器原样返回自己 —— 通用层可以对谁都这么调,不必认识哪家要会话
     func testAdaptersWithoutSessionsIgnoreTheScope() {
         let scoped = Sub2APIProvider().sessionScoped(to: InMemorySessionTokenStore())

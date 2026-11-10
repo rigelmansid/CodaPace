@@ -181,6 +181,16 @@ func XCTAssertThrowsError<T>(_ expression: @autoclosure () throws -> T,
     }
 }
 
+func XCTAssertNoThrow<T>(_ expression: @autoclosure () throws -> T,
+                         _ message: @autoclosure () -> String = "",
+                         file: StaticString = #filePath, line: UInt = #line) {
+    do {
+        _ = try expression()
+    } catch {
+        TinyTest.fail("期望不抛错,实际抛出 \(error)\(suffix(message()))", file: file, line: line)
+    }
+}
+
 func XCTFail(_ message: String = "",
              file: StaticString = #filePath, line: UInt = #line) {
     TinyTest.fail(message.isEmpty ? "主动判定失败" : message, file: file, line: line)

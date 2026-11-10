@@ -55,6 +55,53 @@ public enum SessionTokens {
     public static var store: SessionTokenStore = InMemorySessionTokenStore()
 }
 
+/// 一次刷新期间的会话改动先记在这里,**提交前的身份校验通过了才写进正式存储**(OPT-033)。
+///
+/// 会话令牌是刷新流程里唯一一件在 `await` 中途就落盘的副作用:登录一回来就写进钥匙串。
+/// 快照、历史、通知都等提交前比过身份才做(不变量 2),只有它绕过了这道门。于是旧刷新在飞时
+/// 账户被清理 —— 切走一个没存档的账户、删掉一个存档 —— 清理刚删掉的会话,会被这次登录
+/// 原样写回来,而界面上已经没有删它的入口。测试连接(OPT-017)早就是这个做法:先放在一边,
+/// 算数了再移交。这里把同一个做法用到刷新上。
+///
+/// 读先看这次自己改过的,没改过的读正式存储 —— 已保存的会话照样复用,不必每次都登录。
+/// 不 `commit` 就等于整份丢弃:登录换来的那个会话服务端照样有效,只是这边不再记着它。
+public final class StagedSessionTokenStore: SessionTokenStore {
+
+    private let base: SessionTokenStore
+
+    /// 这次改过的。值为 nil 表示这次把它删了(过期、被登出) —— 和「没改过」是两回事
+    private var changes: [AccountIdentity: String?] = [:]
+    private let lock = NSLock()
+
+    public init(over base: SessionTokenStore) {
+        self.base = base
+    }
+
+    public func token(for account: AccountIdentity) -> String? {
+        lock.lock()
+        let change = changes[account]
+        lock.unlock()
+        if let change { return change }
+        return base.token(for: account)
+    }
+
+    public func setToken(_ token: String?, for account: AccountIdentity) {
+        lock.lock(); defer { lock.unlock() }
+        // 这里的 nil(这次删了)得留在字典里。写明 .some,免得哪天有人顺手改成
+        // `changes[account] = nil` 字面量 —— 那会把这一项删掉,「删了」就成了「没改过」
+        changes[account] = .some(token)
+    }
+
+    /// 把这次的改动写进正式存储。只在提交前的身份校验通过之后调
+    public func commit() {
+        lock.lock()
+        let pending = changes
+        changes = [:]
+        lock.unlock()
+        for (account, token) in pending { base.setToken(token, for: account) }
+    }
+}
+
 // MARK: - 适配器
 
 public struct ClaudeCodeHubProvider: UsageProviderAdapter {

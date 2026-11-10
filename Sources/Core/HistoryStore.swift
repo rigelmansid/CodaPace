@@ -101,12 +101,17 @@ public final class HistoryStore {
     ]
 
     /// 这个分区键下一行数据都没有吗
+    ///
+    /// 读失败必须抛出,不能当成「没有」(OPT-032):新键那一侧读错了却被当成空,
+    /// 认领就会把老分区叠到一个其实有数据的新分区上 —— 叠了就分不开。
     private func isEmpty(_ key: String) throws -> Bool {
         for table in Self.partitionedTables {
             let stmt = try prepare("SELECT 1 FROM \(table) WHERE account_key = ? LIMIT 1;")
             defer { sqlite3_finalize(stmt) }
             sqlite3_bind_text(stmt, 1, key, -1, SQLITE_TRANSIENT)
-            if sqlite3_step(stmt) == SQLITE_ROW { return false }
+            var found = false
+            try forEachRow(stmt) { found = true }
+            if found { return false }
         }
         return true
     }
@@ -124,6 +129,14 @@ public final class HistoryStore {
 
     private func migrate() throws {
         let from = try userVersion()
+
+        // 比这一版新的库(用户装回了旧版 app)**一个字都不写**(OPT-032)。照常往下走的话,
+        // 末尾那句会把 user_version 写回 4,新版再打开时以为还没迁移过,把迁移重跑一遍 ——
+        // OPT-027 的幽灵桶就是 v3 这样写回版本号造成的。旧版不知道新版改了什么,往里写
+        // 采样同样可能破坏新版的约定。宁可这一版的历史功能停摆、如实报错(主功能不受影响)
+        guard from <= Self.schemaVersion else {
+            throw StoreError("历史数据库来自更新版本的 CodaPace(结构版本 \(from)),这个版本不能写入")
+        }
 
         try execute("""
             CREATE TABLE IF NOT EXISTS samples (
@@ -251,7 +264,8 @@ public final class HistoryStore {
     private func userVersion() throws -> Int32 {
         let stmt = try prepare("PRAGMA user_version;")
         defer { sqlite3_finalize(stmt) }
-        guard sqlite3_step(stmt) == SQLITE_ROW else { return 0 }
+        // 读不出版本号不能当成 0:那会把一个好好的 v4 库当成全新的库,把迁移整个重跑一遍
+        try stepToSingleRow(stmt)
         return sqlite3_column_int(stmt, 0)
     }
 
@@ -266,7 +280,7 @@ public final class HistoryStore {
         defer { sqlite3_finalize(stmt) }
 
         var existing: Set<String> = []
-        while sqlite3_step(stmt) == SQLITE_ROW {
+        try forEachRow(stmt) {
             if let name = sqlite3_column_text(stmt, 1) { existing.insert(String(cString: name)) }
         }
         guard !existing.contains(column) else { return }
@@ -440,7 +454,7 @@ public final class HistoryStore {
         sqlite3_bind_double(stmt, 2, from.timeIntervalSince1970)
         sqlite3_bind_double(stmt, 3, to.timeIntervalSince1970)
 
-        guard sqlite3_step(stmt) == SQLITE_ROW else { return (0, 0) }
+        try stepToSingleRow(stmt)
         return (sqlite3_column_double(stmt, 0), Int(sqlite3_column_int64(stmt, 1)))
     }
 
@@ -459,6 +473,10 @@ public final class HistoryStore {
 
     /// 最近一条采样。**重启后的 token 基线就靠它** ——
     /// 没有它就只能拿累计值当增量,会把上亿的历史全算进今天。
+    ///
+    /// 读失败抛错,不返回 nil(OPT-032):nil 的意思是「库里没有采样」,写入器据此把这次
+    /// 当成首次采样、不算增量,旧基线到现在的那段用量就永久丢了。抛出去,这次写入整个作罢,
+    /// 下一次刷新再从库里补基线。
     public func lastSample() throws -> Sample? {
         let sql = """
             \(Self.sampleColumns)
@@ -470,7 +488,7 @@ public final class HistoryStore {
         defer { sqlite3_finalize(stmt) }
 
         sqlite3_bind_text(stmt, 1, accountKey, -1, SQLITE_TRANSIENT)
-        return readSamples(stmt).first
+        return try readSamples(stmt).first
     }
 
     public func samples(from: Date, to: Date) throws -> [Sample] {
@@ -486,7 +504,7 @@ public final class HistoryStore {
         sqlite3_bind_double(stmt, 2, from.timeIntervalSince1970)
         sqlite3_bind_double(stmt, 3, to.timeIntervalSince1970)
 
-        return readSamples(stmt)
+        return try readSamples(stmt)
     }
 
     /// 这个账户的历史里**出现过**哪些额度桶。
@@ -504,7 +522,7 @@ public final class HistoryStore {
         sqlite3_bind_text(stmt, 1, accountKey, -1, SQLITE_TRANSIENT)
 
         var result: [String] = []
-        while sqlite3_step(stmt) == SQLITE_ROW {
+        try forEachRow(stmt) {
             if let id = sqlite3_column_text(stmt, 0) { result.append(String(cString: id)) }
         }
         return result
@@ -524,7 +542,7 @@ public final class HistoryStore {
         sqlite3_bind_text(stmt, 3, to, -1, SQLITE_TRANSIENT)
 
         var result: [TokenDay] = []
-        while sqlite3_step(stmt) == SQLITE_ROW {
+        try forEachRow(stmt) {
             let day = String(cString: sqlite3_column_text(stmt, 0))
             result.append(TokenDay(day: day,
                                    tokens: sqlite3_column_double(stmt, 1),
@@ -537,7 +555,7 @@ public final class HistoryStore {
         let stmt = try prepare("SELECT COUNT(*) FROM samples WHERE account_key = ?;")
         defer { sqlite3_finalize(stmt) }
         sqlite3_bind_text(stmt, 1, accountKey, -1, SQLITE_TRANSIENT)
-        guard sqlite3_step(stmt) == SQLITE_ROW else { return 0 }
+        try stepToSingleRow(stmt)
         return Int(sqlite3_column_int64(stmt, 0))
     }
 
@@ -584,12 +602,31 @@ public final class HistoryStore {
         }
     }
 
+    /// 逐行读到底。**只有 SQLITE_DONE 才算读完**,其余返回码都是读失败,抛出(OPT-032)。
+    ///
+    /// 从前每个读循环都写成「还是 SQLITE_ROW 就继续」:读到一半出错(库损坏、IO 错误、
+    /// 超长字段)和正常读完长得一模一样,调用方拿到的是半份或一份空结果 —— 恢复基线时
+    /// 「读错」就成了「库里没有采样」。所有读循环都走这一处,不各写各的判断。
+    private func forEachRow(_ stmt: OpaquePointer?, _ body: () throws -> Void) throws {
+        while true {
+            let code = sqlite3_step(stmt)
+            if code == SQLITE_DONE { return }
+            guard code == SQLITE_ROW else { throw StoreError("SQL 读取失败:\(lastMessage)") }
+            try body()
+        }
+    }
+
+    /// 只出一行的查询(聚合、PRAGMA)走到那一行。它们总有一行 —— 没有就是读失败,不是 0。
+    private func stepToSingleRow(_ stmt: OpaquePointer?) throws {
+        guard sqlite3_step(stmt) == SQLITE_ROW else { throw StoreError("SQL 读取失败:\(lastMessage)") }
+    }
+
     /// 把 JOIN 出来的扁平行按时刻收拢成采样。
     ///
     /// 同一条采样的各个桶在结果里是**连续**的若干行(按 ts 排过序),
     /// 时刻一变就收一条。`bucket_id` 为 NULL 是 LEFT JOIN 的正常产物 ——
     /// 那条采样当时一条额度都没有,如实给一个空字典,不是补四条 0。
-    private func readSamples(_ stmt: OpaquePointer?) -> [Sample] {
+    private func readSamples(_ stmt: OpaquePointer?) throws -> [Sample] {
         var result: [Sample] = []
 
         var timestamp: Double?
@@ -603,7 +640,7 @@ public final class HistoryStore {
                                  allTokens: allTokens, requests: requests, quotas: quotas))
         }
 
-        while sqlite3_step(stmt) == SQLITE_ROW {
+        try forEachRow(stmt) {
             let ts = sqlite3_column_double(stmt, 0)
             if ts != timestamp {
                 flush()
@@ -613,7 +650,8 @@ public final class HistoryStore {
                 quotas = [:]
             }
 
-            guard let id = sqlite3_column_text(stmt, 3) else { continue }
+            // 这一行没有桶(LEFT JOIN 的空行):这条采样到此为止,接着读下一行
+            guard let id = sqlite3_column_text(stmt, 3) else { return }
             // NULL 上限 = 当时不知道,和「上限为 0(不限)」是两件事,读回来也要分开
             let limit: Double? = sqlite3_column_type(stmt, 5) == SQLITE_NULL
                 ? nil : sqlite3_column_double(stmt, 5)

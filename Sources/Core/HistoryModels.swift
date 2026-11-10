@@ -173,16 +173,23 @@ public enum TokenDelta {
     /// 「算得出但说不清哪天」后果完全不同:前者只能重建基线,后者的总量必须留下来。
     /// 从前它们压在同一个 nil 里,于是断档期间的用量被静默丢弃,总量对不上。
     ///
-    /// 返回 nil 表示**连总量都算不出**,只能重建基线。两种情况:
+    /// 返回 nil 表示**连总量都算不出**,只能重建基线。三种情况:
     /// 1. 没有前值(首次安装)—— 直接把累计值当增量会把上亿的历史全算进今天
     /// 2. 累计值变小(服务端重置或换了 key)—— 不能产生负增量
+    /// 3. 差值本身不成立:请求数相减溢出,或 token 差不是有限数(OPT-035)。累计值来自
+    ///    对方的响应或旧版本写进库的采样,一个错误的大数(前值 `Int.min`、后值 0)就能让
+    ///    整数减法当场 trap —— catch 接不住,整个 app 退出,下次启动刷新又崩
+    ///
+    /// **时间先后不在这里判**(OPT-037)。从前这里有一句「后一条必须晚于前一条」:系统时钟
+    /// 被回拨时直接返回 nil,而观测基线照样前移,于是回拨那一步的用量永久丢掉。可那段用量
+    /// 算得出 —— 两个累计值一减就是 —— 说不清的只是它属于哪天,那是归属层的事
+    /// (`TokenAttributionPolicy` 把它记成未归属)。
     public static func between(previous: Sample?, current: Sample) -> Delta? {
         guard let previous else { return nil }
-        guard current.at > previous.at else { return nil }
 
         let tokens = current.allTokens - previous.allTokens
-        let requests = current.requests - previous.requests
-        guard tokens >= 0, requests >= 0 else { return nil }
+        let (requests, overflowed) = current.requests.subtractingReportingOverflow(previous.requests)
+        guard !overflowed, tokens.isFinite, tokens >= 0, requests >= 0 else { return nil }
         guard tokens > 0 || requests > 0 else { return nil }
 
         return Delta(tokens: tokens, requests: requests)
@@ -205,6 +212,8 @@ public enum TokenAttribution: Equatable {
     ///
     /// 所以如实记成「这段时间有这么多用量,但归不到具体某天」,
     /// 总量不丢,也不假装知道它属于哪天。
+    ///
+    /// 时钟回拨时也落在这里(OPT-037)。`from` 总是不晚于 `to`。
     case unattributed(from: Date, to: Date)
 }
 
@@ -224,8 +233,14 @@ public enum TokenAttributionPolicy {
     /// 不能连线,是因为中间的**走势**未知;按天总量不需要走势。
     ///
     /// 撤掉它之后,当天切走又切回来的账户(EXT-010),中间的用量完整记在当天。
+    ///
+    /// **后一条不晚于前一条**(系统时钟被回拨)也归不了(OPT-037):两个时刻都不可信,
+    /// 哪一天都不是「它们之间的那段」。记成未归属,区间按先后理顺(早的在前),总量不丢 ——
+    /// 从前 `TokenDelta` 遇到这种就返回 nil,回拨那一步的用量被静默丢掉。
     public static func attribute(from previous: Date, to current: Date,
                                  timeZone: TimeZone = .current) -> TokenAttribution {
+        guard current > previous else { return .unattributed(from: current, to: previous) }
+
         let before = DayKey.string(for: previous, timeZone: timeZone)
         let after = DayKey.string(for: current, timeZone: timeZone)
 

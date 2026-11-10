@@ -3,6 +3,8 @@ import CodaPaceCore
 
 private let ny = TimeZone(identifier: "America/New_York")!
 private let sh = TimeZone(identifier: "Asia/Shanghai")!
+/// 夏令时只拨半小时(+10:30 ↔ +11:00)。Foundation 的日历匹配在这里会跳过边界(OPT-036)
+private let lordHowe = TimeZone(identifier: "Australia/Lord_Howe")!
 
 private func at(_ y: Int, _ mo: Int, _ d: Int, _ h: Int = 0, _ mi: Int = 0,
                 _ tz: TimeZone = ny) -> Date {
@@ -129,6 +131,11 @@ final class CalendarBoundaryTests: XCTestCase {
             guard rule.period(containing: period.end)?.start == period.end else {
                 return XCTFail("\(period.end) 之后的周期没有接上", file: file, line: line)
             }
+            // 起点那一侧也要接上(OPT-036)。只查终点一侧时,秋季重复那一小时里起点落在
+            // 第二次上照样通过:两个时刻各自都「落在自己的周期里」,只是那是两个不同的周期
+            guard rule.period(containing: period.start.addingTimeInterval(-0.5))?.end == period.start else {
+                return XCTFail("\(period.start) 之前的周期没有接上", file: file, line: line)
+            }
         }
     }
 
@@ -155,6 +162,44 @@ final class CalendarBoundaryTests: XCTestCase {
     func testWeeklyPeriodsAreSeamlessAcrossTheTransition() {
         let weekly = ResetRule(.calendarWeekly(timeZone: ny, weekday: 1, hour: 2, minute: 30), provenance: .configured)
         assertSeamless(weekly, from: at(2026, 3, 1), hours: 24 * 15)
+    }
+
+    /// OPT-036:秋季那一小时走两遍,重置时刻 01:30 落在里面 —— 起点只认第一次。
+    /// 从前第二次 01:30 之后往回找,起点落在第二次上:同一天的周期 ID 变了一次,
+    /// 图上多出一次重置,低额度告警的去重键也跟着变
+    func testARepeatedResetTimeStartsTheDayOnlyOnce() {
+        let rule = daily(1, 30)
+        let midnight = at(2026, 11, 1)                        // 00:00 EDT
+        let firstPass = midnight.addingTimeInterval(5400)     // 01:30 EDT
+        let afterSecondPass = midnight.addingTimeInterval(9900)   // 01:45 EST,第二次 01:30 之后
+
+        XCTAssertEqual(rule.period(containing: afterSecondPass)?.start, firstPass)
+        XCTAssertEqual(rule.periodID(containing: afterSecondPass),
+                       rule.periodID(containing: firstPass.addingTimeInterval(60)))
+    }
+
+    /// OPT-036:半小时夏令时。Lord Howe 2026-10-04 当地 02:00 拨到 02:30,那天的「02:00」
+    /// 不存在,边界取跳过之后的第一刻(02:30,+11:00)。从前往回找跳过了 10/3 那个边界,
+    /// 10/3 中午拿到一个已经结束的周期;往前找又跳过 10/4,周期长到 48 小时
+    func testAHalfHourShiftKeepsEveryDaysBoundary() {
+        let rule = daily(2, 0, lordHowe)
+        guard let period = rule.period(containing: at(2026, 10, 3, 12, 0, lordHowe)) else {
+            return XCTFail("算不出周期")
+        }
+        XCTAssertEqual(period.start, at(2026, 10, 3, 2, 0, lordHowe))
+        XCTAssertEqual(period.end, at(2026, 10, 4, 2, 30, lordHowe))
+        // 切换那一刻是标准时的 02:00,所以和前一天的 02:00 正好隔 24 小时 —— 不是 48 小时
+        XCTAssertEqual(period.duration, 24 * 3600, accuracy: 0.001)
+    }
+
+    func testPeriodsAreSeamlessAcrossAHalfHourShift() {
+        assertSeamless(daily(2, 0, lordHowe), from: at(2026, 10, 1, 0, 0, lordHowe), hours: 96)
+        assertSeamless(daily(2, 15, lordHowe), from: at(2026, 10, 1, 0, 0, lordHowe), hours: 96)
+        // 秋季拨回(2027-04-04 当地 02:00 → 01:30),01:45 在重复的半小时里
+        assertSeamless(daily(1, 45, lordHowe), from: at(2027, 4, 2, 0, 0, lordHowe), hours: 96)
+        let weekly = ResetRule(.calendarWeekly(timeZone: lordHowe, weekday: 1, hour: 2, minute: 0),
+                               provenance: .configured)
+        assertSeamless(weekly, from: at(2026, 9, 27, 0, 0, lordHowe), hours: 24 * 15)
     }
 
     /// 边界前半秒还是旧周期

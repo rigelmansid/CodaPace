@@ -173,6 +173,21 @@ final class FieldValidityTests: XCTestCase {
         XCTAssertFalse(stats.hasCompleteUsage)
     }
 
+    /// OPT-035:累计值不可能是负数。照样能解、照样显示,但不进历史 ——
+    /// 进了库它就是下一次做差的基线,`Int.min` 那样的会让请求数相减溢出
+    func testNegativeTotalsMakeUsageIncomplete() {
+        for total in [#"{"allTokens": -5, "requests": 10}"#,
+                      #"{"allTokens": 1000, "requests": -9223372036854775808}"#] {
+            let payload = """
+            {"usage": {"total": \(total)},
+             "limits": {"currentTotalCost": 100, "currentDailyCost": 42,
+                        "weeklyOpusCost": 7, "currentWindowCost": 3}}
+            """
+            let stats = try! JSONDecoder().decode(UserStats.self, from: json(payload))
+            XCTAssertFalse(stats.hasCompleteUsage, total)
+        }
+    }
+
     /// 可选字段缺失不该把整份响应打成不完整 —— 否则等于退回「什么都不敢信」
     func testMissingOptionalFieldsStayComplete() {
         let stats = try! JSONDecoder().decode(UserStats.self, from: json(completePayload))

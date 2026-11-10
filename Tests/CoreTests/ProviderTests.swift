@@ -505,29 +505,47 @@ final class InFlightGateTests: XCTestCase {
 
     func testSameTokenDoesNotReenter() {
         var gate = InFlightGate<String>()
-        XCTAssertTrue(gate.begin("a"))
-        XCTAssertFalse(gate.begin("a"))
+        XCTAssertNotNil(gate.begin("a"))
+        XCTAssertNil(gate.begin("a"))
     }
 
     /// 用户改了网址,新的一次测试必须放行 —— 它和上一次是两件事
     func testDifferentTokenIsLetThrough() {
         var gate = InFlightGate<String>()
         _ = gate.begin("a")
-        XCTAssertTrue(gate.begin("b"))
+        XCTAssertNotNil(gate.begin("b"))
         XCTAssertEqual(gate.token, "b")
     }
 
     /// 先发起的那次回来时,不能把后来者的在飞标记抹成空闲
     func testStaleFinishDoesNotClearTheNewerToken() {
         var gate = InFlightGate<String>()
-        _ = gate.begin("a")
-        _ = gate.begin("b")
+        guard let a = gate.begin("a"), let b = gate.begin("b") else { return XCTFail("没放行") }
 
-        gate.finish("a")
+        gate.finish(a)
         XCTAssertTrue(gate.isBusy)
         XCTAssertEqual(gate.token, "b")
 
-        gate.finish("b")
+        gate.finish(b)
+        XCTAssertFalse(gate.isBusy)
+    }
+
+    /// OPT-034:测试 A、改成 B 再测、改回 A 再测。A1 的输入和屏幕上的一样,但它已经不算数 ——
+    /// 结果不能提交,收尾也不能清掉 A2 的在飞标记,否则第三次 A 会在 A2 还在飞时被放进来。
+    /// 从前门认的是输入文字,A1 和 A2 长得一模一样
+    func testAnEarlierRunOfTheSameTokenNoLongerCounts() {
+        var gate = InFlightGate<String>()
+        guard let a1 = gate.begin("a"), gate.begin("b") != nil,
+              let a2 = gate.begin("a") else { return XCTFail("没放行") }
+
+        XCTAssertFalse(gate.isCurrent(a1))
+        XCTAssertTrue(gate.isCurrent(a2))
+
+        gate.finish(a1)                    // A1 这时才回来
+        XCTAssertTrue(gate.isCurrent(a2))
+        XCTAssertNil(gate.begin("a"), "A2 还在飞,同一段输入不该再放行")
+
+        gate.finish(a2)
         XCTAssertFalse(gate.isBusy)
     }
 }

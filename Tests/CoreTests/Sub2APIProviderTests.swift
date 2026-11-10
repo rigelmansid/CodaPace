@@ -260,9 +260,8 @@ final class Sub2APIProviderTests: XCTestCase {
     /// 本条的起因:正常 → 累计值缺失 → 恢复,当天只能记真实的那段增量。
     /// 从前中间那次按完整入库、累计值退成 0 并推进基线,恢复时整段 1200 被记成当天新增
     func testAMissingTotalDoesNotInflateTheDaysUsage() {
-        let dir = FileManager.default.temporaryDirectory
-            .appendingPathComponent("cub-test-\(UUID().uuidString)", isDirectory: true)
-        let store = try! HistoryStore(path: dir.appendingPathComponent("History.sqlite"), accountKey: "k")
+        let store = try! HistoryStore(path: TestScratch.directory().appendingPathComponent("History.sqlite"),
+                                      accountKey: "k")
         var writer = HistoryWriter()
         let zone = TimeZone(identifier: "Asia/Shanghai")!
 
@@ -287,6 +286,15 @@ final class Sub2APIProviderTests: XCTestCase {
                                   now: "2026-09-28T10:00:00.000000+08:00") else { return }
         XCTAssertFalse(snap.hasCompleteUsage)
         XCTAssertNil(snap.totalTokens)
+    }
+
+    /// OPT-035:负的累计值也不是观测值 —— 照常显示,不进历史。进了库它就是下一次做差的基线
+    func testANegativeTotalMakesTheReadingIncomplete() {
+        for total in [#"{"actual_cost": 1, "requests": -1, "total_tokens": 1000}"#,
+                      #"{"actual_cost": 1, "requests": 100, "total_tokens": -1}"#] {
+            guard let snap = snapshot(keyQuota(total: total), now: "2026-09-28T10:00:00.000000+08:00") else { return }
+            XCTAssertFalse(snap.hasCompleteUsage, total)
+        }
     }
 
     /// 有上限、没报已用:面板照旧按 0 显示(和中转站同一个做法),但不能进历史

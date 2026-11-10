@@ -47,51 +47,75 @@ enum KeychainStore {
     /// 所有条目共用的服务名;具体哪一条由调用方给的 key 区分。
     private static let service = "CodaPace"
 
-    private static func query(_ key: String) -> [String: Any] {
-        [kSecClass as String: kSecClassGenericPassword,
-         kSecAttrService as String: service,
-         kSecAttrAccount as String: key]
-    }
-
-    /// 写入或覆盖。
+    /// 写入或覆盖。**失败时旧值原样保留**(OPT-031)。
     ///
-    /// 先删再加,而不是 add 失败了再 update:后者要按「已存在」分一次支,
-    /// 而这条分支只在极少数时候走到,恰恰最容易写错又最不容易被发现。
+    /// 从前是先删再加:删成功、加失败,旧密钥就没了,正在用的账户当场变成「缺少密钥」。
+    /// 现在先写暂存、再撤旧值、最后改名,顺序和理由在 Core 的 SecretVault。那里也解释了
+    /// 为什么不是「已存在就原地更新」—— 新建的条目才属于当前构建(坑 2)。
     static func set(_ secret: String, for key: String) throws {
-        SecItemDelete(query(key) as CFDictionary)
-
-        var attributes = query(key)
-        attributes[kSecValueData as String] = Data(secret.utf8)
-        // 只在本机、解锁之后可读,且**不参与 iCloud 钥匙串同步** ——
-        // 这是一台机器上一个 app 的凭据,同步出去只是白白扩大暴露面。
-        attributes[kSecAttrAccessible as String] = kSecAttrAccessibleWhenUnlocked
-
-        let status = SecItemAdd(attributes as CFDictionary, nil)
-        guard status == errSecSuccess else { throw KeychainError.unexpectedStatus(status) }
+        try Vault().write(secret, to: key)
     }
 
     /// 读取。没有这一条时返回 nil,**不作为错误** —— 没配过是正常状态,不是故障。
     static func get(_ key: String) throws -> String? {
-        var q = query(key)
-        q[kSecReturnData as String] = true
-        q[kSecMatchLimit as String] = kSecMatchLimitOne
-
-        var item: CFTypeRef?
-        let status = SecItemCopyMatching(q as CFDictionary, &item)
-        if status == errSecItemNotFound { return nil }
-        guard status == errSecSuccess else { throw KeychainError.unexpectedStatus(status) }
-
-        guard let data = item as? Data,
-              let text = String(data: data, encoding: .utf8)
-        else { throw KeychainError.malformedData }
-        return text
+        try Vault().read(key)
     }
 
-    /// 删除。本来就没有也算成功 —— 调用方要的是「删完之后它不在了」这个结果。
+    /// 删除,连覆盖中途留下的暂存一起。本来就没有也算成功 ——
+    /// 调用方要的是「删完之后它不在了」这个结果。
     static func remove(_ key: String) throws {
-        let status = SecItemDelete(query(key) as CFDictionary)
-        guard status == errSecSuccess || status == errSecItemNotFound else {
-            throw KeychainError.unexpectedStatus(status)
+        try Vault().remove(key)
+    }
+
+    /// SecItem* 的四个原子操作。**每个返回码都看**:从前删的那一步不看结果,
+    /// 删不掉时接着加,报出来的是一句对不上的「条目已存在」。
+    private struct Vault: SecretVault {
+
+        private func query(_ account: String) -> [String: Any] {
+            [kSecClass as String: kSecClassGenericPassword,
+             kSecAttrService as String: KeychainStore.service,
+             kSecAttrAccount as String: account]
+        }
+
+        func readItem(_ account: String) throws -> String? {
+            var q = query(account)
+            q[kSecReturnData as String] = true
+            q[kSecMatchLimit as String] = kSecMatchLimitOne
+
+            var item: CFTypeRef?
+            let status = SecItemCopyMatching(q as CFDictionary, &item)
+            if status == errSecItemNotFound { return nil }
+            guard status == errSecSuccess else { throw KeychainError.unexpectedStatus(status) }
+
+            guard let data = item as? Data,
+                  let text = String(data: data, encoding: .utf8)
+            else { throw KeychainError.malformedData }
+            return text
+        }
+
+        func addItem(_ secret: String, account: String) throws {
+            var attributes = query(account)
+            attributes[kSecValueData as String] = Data(secret.utf8)
+            // 只在本机、解锁之后可读,且**不参与 iCloud 钥匙串同步** ——
+            // 这是一台机器上一个 app 的凭据,同步出去只是白白扩大暴露面。
+            attributes[kSecAttrAccessible as String] = kSecAttrAccessibleWhenUnlocked
+
+            let status = SecItemAdd(attributes as CFDictionary, nil)
+            guard status == errSecSuccess else { throw KeychainError.unexpectedStatus(status) }
+        }
+
+        func deleteItem(_ account: String) throws {
+            let status = SecItemDelete(query(account) as CFDictionary)
+            guard status == errSecSuccess || status == errSecItemNotFound else {
+                throw KeychainError.unexpectedStatus(status)
+            }
+        }
+
+        /// 只改名字,不碰内容和访问控制。暂存条目是当前构建刚建的,改它不会弹授权框
+        func renameItem(_ account: String, to newAccount: String) throws {
+            let status = SecItemUpdate(query(account) as CFDictionary,
+                                       [kSecAttrAccount as String: newAccount] as CFDictionary)
+            guard status == errSecSuccess else { throw KeychainError.unexpectedStatus(status) }
         }
     }
 }

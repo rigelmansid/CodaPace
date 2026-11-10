@@ -4,6 +4,11 @@ import CodaPaceCore
 
 private let base = Date(timeIntervalSince1970: 1_788_800_000)
 
+/// 只数天桶的用例,归日时区写死,不跟本机走(OPT-038):`base` 是 UTC 16:53,
+/// UTC+7 的机器上再过 7 分钟就跨午夜,那段增量进了未归属,用例就在那些机器上误报。
+/// 上海时区里 `base` 是 00:53,后面一两个小时都在同一天
+private let dayZone = TimeZone(identifier: "Asia/Shanghai")!
+
 /// 造一条采样。只关心某几个字段时,其余留默认值。
 private func sample(minutes: Double,
                     total: Double = 0,
@@ -20,10 +25,27 @@ private func sample(minutes: Double,
                     "window": QuotaReading(used: window)])
 }
 
+/// 测试用的临时目录都开在同一个根目录下,进程退出时一起删(OPT-038)。
+///
+/// 从前每个用例在系统临时目录里各开一个 `cub-test-<UUID>`,跑完不删 —— 一轮留下五十多个
+/// 带数据库的目录。不加 private:sub2api 的序列测试也要落库,各开各的就又撒出去了。
+/// 中途崩溃时退出钩子不会跑,那时留下的也只有这一个根目录。
+enum TestScratch {
+    static let root: URL = {
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cub-test-\(UUID().uuidString)", isDirectory: true)
+        _ = atexit { try? FileManager.default.removeItem(at: TestScratch.root) }
+        return url
+    }()
+
+    /// 一个新的、只属于调用方的目录(还不存在 —— `HistoryStore` 打开时自己建)
+    static func directory() -> URL {
+        root.appendingPathComponent(UUID().uuidString, isDirectory: true)
+    }
+}
+
 private func storeURL() -> URL {
-    FileManager.default.temporaryDirectory
-        .appendingPathComponent("cub-test-\(UUID().uuidString)", isDirectory: true)
-        .appendingPathComponent("History.sqlite")
+    TestScratch.directory().appendingPathComponent("History.sqlite")
 }
 
 private func tempStore(accountKey: String = "key-a") -> HistoryStore {
@@ -128,7 +150,7 @@ private func replayRefreshes(minutes: [Double],
         try! writer.write(sample(minutes: minute,
                                  daily: dailyAt(minute),
                                  tokens: tokensAt(minute)),
-                          to: store)
+                          to: store, timeZone: dayZone)
     }
     return (storedMinutes(of: store), totalTokens(of: store))
 }
@@ -259,6 +281,32 @@ final class TokenDeltaTests: XCTestCase {
         let b = sample(minutes: 1, tokens: 1000, requests: 10)
         XCTAssertNil(TokenDelta.between(previous: a, current: b))
     }
+
+    /// OPT-035:请求数相减会溢出的一对(前值 `Int.min`、后值 0)算不出增量 —— 而不是让进程 trap。
+    /// 这样的前值来自对方一份坏响应,或旧版本照单全收写进库的采样
+    func testAnOverflowingRequestCountIsNoDelta() {
+        let a = sample(minutes: 0, tokens: 100, requests: Int.min)
+        let b = sample(minutes: 1, tokens: 200, requests: 0)
+        XCTAssertNil(TokenDelta.between(previous: a, current: b))
+    }
+
+    /// 同理,token 差算出无穷大也不是增量 —— 进了日桶,那天的总数就永远是无穷大
+    func testAnInfiniteTokenDifferenceIsNoDelta() {
+        let a = sample(minutes: 0, tokens: -.greatestFiniteMagnitude)
+        let b = sample(minutes: 1, tokens: .greatestFiniteMagnitude)
+        XCTAssertNil(TokenDelta.between(previous: a, current: b))
+    }
+
+    /// OPT-037:系统时钟被回拨,后一条的时刻比前一条早。用了多少照样算得出 ——
+    /// 说不清的只是哪天,那归归属层管。从前这里直接返回 nil,这段用量就此丢掉
+    func testAClockRollbackStillYieldsAnAmount() {
+        let a = sample(minutes: 0, tokens: 100, requests: 1)
+        let b = sample(minutes: -2, tokens: 200, requests: 3)
+
+        let delta = TokenDelta.between(previous: a, current: b)
+        XCTAssertEqual(delta?.tokens ?? -1, 100, accuracy: 1e-9)
+        XCTAssertEqual(delta?.requests, 2)
+    }
 }
 
 // MARK: - 键
@@ -357,11 +405,34 @@ final class HistoryStoreTests: XCTestCase {
         XCTAssertEqual(days[0].requests, 5)
     }
 
+    /// OPT-032:读到一半出错要抛出来,不能和「正常读完、没有数据」长得一样。
+    /// 用的是真实的损坏(见 `corruptEveryPageButTheFirst`),从前这几个接口全都安静地
+    /// 返回 nil、0、空数组 —— 图表说「还没有采样」,写入器把读错当成「库里没有采样」
+    func testReadErrorsAreReportedNotTakenForAnEmptyHistory() {
+        let url = storeURL()
+        do {
+            let store = try! HistoryStore(path: url, accountKey: "key-a")
+            for minute in 0..<20 {
+                try! store.insert(sample(minutes: Double(minute), daily: Double(minute), tokens: Double(minute)))
+            }
+            try! store.addTokenDelta(day: "2026-09-08", tokens: 5, requests: 1)
+            try! store.addUnattributed(from: base, to: base.addingTimeInterval(60), tokens: 5, requests: 1)
+        }
+        corruptEveryPageButTheFirst(at: url)
+
+        let store = try! HistoryStore(path: url, accountKey: "key-a")
+        let range = (base.addingTimeInterval(-86_400), base.addingTimeInterval(86_400))
+        XCTAssertThrowsError(try store.lastSample())
+        XCTAssertThrowsError(try store.samples(from: range.0, to: range.1))
+        XCTAssertThrowsError(try store.tokenDays(from: "0000-01-01", to: "9999-12-31"))
+        XCTAssertThrowsError(try store.knownBucketIDs())
+        XCTAssertThrowsError(try store.sampleCount())
+        XCTAssertThrowsError(try store.unattributedTotal(from: range.0, to: range.1))
+    }
+
     /// 换 apiId 后历史必须隔离,不能串数据
     func testAccountsArePartitioned() {
-        let url = FileManager.default.temporaryDirectory
-            .appendingPathComponent("cub-test-\(UUID().uuidString)", isDirectory: true)
-            .appendingPathComponent("History.sqlite")
+        let url = storeURL()
 
         let a = try! HistoryStore(path: url, accountKey: "key-a")
         let b = try! HistoryStore(path: url, accountKey: "key-b")
@@ -466,6 +537,20 @@ final class HistoryStoreTests: XCTestCase {
     }
 }
 
+/// 把库文件第一页(文件头和表结构)以外的页全写成 0xFF —— 真实的损坏,不是替身(OPT-032)。
+///
+/// 连接都关掉之后再做:那时 WAL 里的内容已经写回主文件,之后的读只能去读这些坏页。
+/// 第一页留着,库照样打得开、表结构照样认得,坏的只是数据 —— 正好落在读的那一步。
+private func corruptEveryPageButTheFirst(at url: URL) {
+    let handle = try! FileHandle(forUpdating: url)
+    defer { try? handle.close() }
+    let header = try! handle.read(upToCount: 100)!
+    let pageSize = Int(header[16]) << 8 | Int(header[17])     // 文件头第 16–17 字节,大端
+    let size = Int(try! handle.seekToEnd())
+    try! handle.seek(toOffset: UInt64(pageSize))
+    try! handle.write(contentsOf: Data(repeating: 0xFF, count: size - pageSize))
+}
+
 // MARK: - 落盘编排
 
 /// 从**另一个连接**把当天桶的表删掉。
@@ -555,9 +640,9 @@ final class IncompleteResponseTests: XCTestCase {
         let store = tempStore()
         var writer = HistoryWriter()
 
-        try! writer.record(complete(minutes: 0, daily: 42, tokens: 1_000, requests: 10), to: store)
-        try! writer.record(incomplete(minutes: 5), to: store)
-        try! writer.record(complete(minutes: 10, daily: 45, tokens: 1_200, requests: 12), to: store)
+        try! writer.record(complete(minutes: 0, daily: 42, tokens: 1_000, requests: 10), to: store, timeZone: dayZone)
+        try! writer.record(incomplete(minutes: 5), to: store, timeZone: dayZone)
+        try! writer.record(complete(minutes: 10, daily: 45, tokens: 1_200, requests: 12), to: store, timeZone: dayZone)
 
         XCTAssertEqual(totalTokens(of: store), 200)
     }
@@ -670,22 +755,46 @@ final class HistoryWriterTests: XCTestCase {
         let store = try! HistoryStore(path: url, accountKey: "k")
         var writer = HistoryWriter()
 
-        try! writer.write(sample(minutes: 0, tokens: 1_000), to: store)
+        try! writer.write(sample(minutes: 0, tokens: 1_000), to: store, timeZone: dayZone)
 
         dropTokenDaysTable(at: url)
         XCTAssertThrowsError(
-            try writer.write(sample(minutes: 5, tokens: 1_300), to: store)
+            try writer.write(sample(minutes: 5, tokens: 1_300), to: store, timeZone: dayZone)
         )
 
         // 重开连接:migrate 会把 token_days 建回来。新的 writer 从库里补基线,
         // 拿到的是回滚后的第一条 —— 于是接下来这次差值覆盖了失败那段。
         let reopened = try! HistoryStore(path: url, accountKey: "k")
         var restarted = HistoryWriter()
-        try! restarted.write(sample(minutes: 10, tokens: 1_500), to: reopened)
+        try! restarted.write(sample(minutes: 10, tokens: 1_500), to: reopened, timeZone: dayZone)
 
         // 1000 → 1500 恰好 500:失败那次的 300 含在里面(没丢),且只算了一遍(没重)。
         // 若当初留下了部分提交,基线会是 1300,这里只会累到 200 —— 丢掉 300。
         XCTAssertEqual(totalTokens(of: reopened), 500)
+    }
+
+    /// OPT-032:重启后从库里补基线时读失败,这次写入必须整个作罢 —— 从前读错被当成
+    /// 「库里没有采样」,这次就按首次采样落库,旧基线到现在的那段增量永久丢掉。
+    ///
+    /// 故障照审查的做法注入:让**这个连接**读不了超长字段(`SQLITE_LIMIT_LENGTH`),
+    /// 写短字段不受影响 —— 这样才做得出「读失败、写照常」的库(损坏页会让写也一起失败,
+    /// 测不出区别)。连接句柄是私有的,只好用反射拿;属性改名时这里会当场崩,不会悄悄失效
+    func testAFailedBaselineReadAbortsTheWriteAndLosesNoTokens() {
+        let store = tempStore()
+        try! store.insert(Sample(at: base, allTokens: 1_000,
+                                 quotas: [String(repeating: "q", count: 1024): QuotaReading(used: 1, limit: 100)]))
+
+        let db = Mirror(reflecting: store).children.first { $0.label == "db" }!.value as! OpaquePointer?
+        let usualLimit = sqlite3_limit(db, SQLITE_LIMIT_LENGTH, 128)
+
+        var writer = HistoryWriter()       // 刚重启,内存里没有基线
+        XCTAssertThrowsError(try writer.write(sample(minutes: 5, tokens: 1_300), to: store, timeZone: dayZone))
+        XCTAssertEqual(try! store.sampleCount(), 1, "读错了就不该写进任何东西")
+
+        // 故障消失后,下一次刷新照常补到基线:1000 → 1500,一个 token 都不少
+        sqlite3_limit(db, SQLITE_LIMIT_LENGTH, usualLimit)
+        try! writer.write(sample(minutes: 10, tokens: 1_500), to: store, timeZone: dayZone)
+        XCTAssertEqual(totalTokens(of: store), 500)
     }
 
     /// 换账户要丢掉两条基线,不能拿旧账户的累计值给新账户做差
@@ -976,6 +1085,32 @@ final class SchemaMigrationTests: XCTestCase {
         XCTAssertEqual(try! reopened.lastSample()?.quotas.count, 2)
     }
 
+    /// OPT-032:比这一版新的库(用户装回了旧版 app)不迁移、不改版本号,如实报错。
+    /// 从前照常往下走,末尾把 user_version 写回 4 —— 新版再打开时会把迁移重跑一遍,
+    /// 正是 OPT-027 那种幽灵桶的来路
+    func testANewerSchemaIsLeftUntouched() {
+        let url = storeURL()
+        do {
+            let store = try! HistoryStore(path: url, accountKey: "key-a")
+            try! store.insert(sample(minutes: 0, daily: 1))
+        }
+
+        var raw: OpaquePointer?
+        sqlite3_open(url.path, &raw)
+        sqlite3_exec(raw, "PRAGMA user_version = 5;", nil, nil, nil)
+        sqlite3_close(raw)
+
+        XCTAssertThrowsError(try HistoryStore(path: url, accountKey: "key-a"))
+
+        sqlite3_open(url.path, &raw)
+        defer { sqlite3_close(raw) }
+        var stmt: OpaquePointer?
+        sqlite3_prepare_v2(raw, "PRAGMA user_version;", -1, &stmt, nil)
+        defer { sqlite3_finalize(stmt) }
+        XCTAssertEqual(sqlite3_step(stmt), SQLITE_ROW)
+        XCTAssertEqual(sqlite3_column_int(stmt, 0), 5, "版本号不能被写回去")
+    }
+
     // MARK: 认领老分区(EXT-009)
 
     /// 分区键加 providerID 之后,老用户的历史靠这一步接上。
@@ -1143,6 +1278,15 @@ final class TokenAttributionTests: XCTestCase {
         XCTAssertEqual(TokenAttributionPolicy.attribute(from: from, to: to, timeZone: utc),
                        .day("2026-06-15"))
     }
+
+    /// OPT-037:时钟回拨,两个时刻都在同一天也不能归给这一天 —— 它们都不可信。
+    /// 记成未归属,区间按先后理顺
+    func testAClockRollbackIsNotAttributedToAnyDay() {
+        let earlier = attrDate(2026, 6, 15, 10, 0)
+        let later = attrDate(2026, 6, 15, 10, 2)
+        XCTAssertEqual(TokenAttributionPolicy.attribute(from: later, to: earlier, timeZone: attrTZ),
+                       .unattributed(from: earlier, to: later))
+    }
 }
 
 final class UnattributedStorageTests: XCTestCase {
@@ -1219,5 +1363,23 @@ final class UnattributedStorageTests: XCTestCase {
                                                         to: attrDate(2026, 7, 1, 0))
         XCTAssertEqual(totalTokens(of: store) + unattributed.tokens, 400,
                        "1000 → 1400，总量必须完整保留")
+    }
+
+    /// OPT-037,审查原样复现的序列:时钟回拨两分钟后又走回来。100 → 400 实际用了 300,
+    /// 从前日桶只记 200 —— 回拨那一步的 100 被丢掉了。现在它进未归属,总量对得上
+    func testAClockRollbackLosesNoTokens() {
+        let store = tempStore()
+        var writer = HistoryWriter()
+        let t = attrDate(2026, 6, 15, 10)
+
+        for (seconds, tokens) in [(0.0, 100.0), (-120, 200), (-60, 300), (60, 400)] {
+            try! writer.write(snapshotSample(t.addingTimeInterval(seconds), tokens: tokens),
+                              to: store, timeZone: attrTZ)
+        }
+
+        let unattributed = try! store.unattributedTotal(from: attrDate(2026, 6, 1, 0),
+                                                        to: attrDate(2026, 7, 1, 0))
+        XCTAssertEqual(totalTokens(of: store), 200, "时钟正常走的那两步照常进当天")
+        XCTAssertEqual(unattributed.tokens, 100, "回拨那一步不归任何一天,但要留下来")
     }
 }
